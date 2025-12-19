@@ -1,4 +1,4 @@
-from loss_funcs import property_guided_loss
+from .loss_funcs import property_guided_loss
 
 __version__ = "1.0"
 __author__ = "RaidenMakoto"
