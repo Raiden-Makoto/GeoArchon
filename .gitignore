@@ -2,3 +2,7 @@
 *.cif
 *.pt
 __pycache__
+logs/
+*.log
+models/*.npz
+models/*.safetensors

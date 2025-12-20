@@ -26,12 +26,22 @@ def main():
                         help='Learning rate (default: 1e-)')
     parser.add_argument('--csv-path', type=str, default='data/MPEA_cleaned.csv',
                         help='Path to CSV data file (default: data/MPEA_cleaned.csv)')
+    parser.add_argument('--val-split', type=float, default=0.2,
+                        help='Fraction of data for validation (default: 0.2, set to 0 to disable)')
+    parser.add_argument('--early-stopping-patience', type=int, default=5,
+                        help='Number of epochs to wait before early stopping (default: 5)')
+    parser.add_argument('--early-stopping-min-delta', type=float, default=0.0,
+                        help='Minimum change to qualify as improvement (default: 0.0)')
     
     args = parser.parse_args()
     
-    # Create log file with timestamp
+    # Create logs directory if it doesn't exist
+    logs_dir = "logs"
+    os.makedirs(logs_dir, exist_ok=True)
+    
+    # Create log file with timestamp in logs folder
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = f"training_{timestamp}.log"
+    log_file = os.path.join(logs_dir, f"training_{timestamp}.log")
     
     print("=" * 60)
     print("HEA VAE Training")
@@ -42,6 +52,10 @@ def main():
     print(f"Beta (KL divergence weight): {args.beta}")
     print(f"Learning Rate: {args.lr}")
     print(f"Data Path: {args.csv_path}")
+    print(f"Validation Split: {args.val_split}")
+    if args.val_split > 0:
+        print(f"Early Stopping Patience: {args.early_stopping_patience}")
+        print(f"Early Stopping Min Delta: {args.early_stopping_min_delta}")
     print(f"Log File: {log_file}")
     print("=" * 60)
     print()
@@ -58,6 +72,10 @@ def main():
         f.write(f"Beta (KL divergence weight): {args.beta}\n")
         f.write(f"Learning Rate: {args.lr}\n")
         f.write(f"Data Path: {args.csv_path}\n")
+        f.write(f"Validation Split: {args.val_split}\n")
+        if args.val_split > 0:
+            f.write(f"Early Stopping Patience: {args.early_stopping_patience}\n")
+            f.write(f"Early Stopping Min Delta: {args.early_stopping_min_delta}\n")
         f.write("=" * 60 + "\n\n")
     
     # Initialize optimizer with specified learning rate
@@ -71,7 +89,11 @@ def main():
         epochs=args.epochs,
         csv_path=args.csv_path,
         batch_size=args.batch_size,
-        log_file=log_file
+        log_file=log_file,
+        val_split=args.val_split,
+        early_stopping_patience=args.early_stopping_patience,
+        early_stopping_min_delta=args.early_stopping_min_delta,
+        save_dir='models'
     )
     
     # Write completion to log file

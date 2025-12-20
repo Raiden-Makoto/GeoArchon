@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 
-def load_hea_data(csv_path='data/MPEA_cleaned.csv', batch_size=64, shuffle=True):
+def load_hea_data(csv_path='data/MPEA_cleaned.csv', batch_size=64, shuffle=True, val_split=0.2):
     """
     Load HEA (High Entropy Alloy) data using MLX.
     
@@ -11,13 +11,16 @@ def load_hea_data(csv_path='data/MPEA_cleaned.csv', batch_size=64, shuffle=True)
         csv_path: Path to the CSV file (default: 'data/MPEA_cleaned.csv')
         batch_size: Batch size for data loading (default: 64)
         shuffle: Whether to shuffle the data (default: True)
+        val_split: Fraction of data to use for validation (default: 0.2)
     
     Returns:
-        data_generator: Generator function that yields batches
+        train_generator: Generator function that yields training batches
+        val_generator: Generator function that yields validation batches (or None if val_split=0)
         y_mean: Mean of the target property (for denormalization)
         y_std: Standard deviation of the target property (for denormalization)
         input_dim: Number of input features (30)
-        n_samples: Total number of valid samples
+        n_train_samples: Number of training samples
+        n_val_samples: Number of validation samples
     """
     # 1. Load Data
     csv_path = Path(csv_path)
@@ -62,26 +65,73 @@ def load_hea_data(csv_path='data/MPEA_cleaned.csv', batch_size=64, shuffle=True)
     
     n_samples = len(X_mlx)
     
-    print(f"Loaded {n_samples} valid alloys.")
-    print(f"Input Features: Element fractions (range: [{X.min():.4f}, {X.max():.4f}], sum to 1.0)")
-    print(f"Target Property Normalized (Mean: {y_mean:.2f}, Std: {y_std:.2f})")
-    
-    # 6. Create indices for batching
-    indices = np.arange(n_samples)
-    if shuffle:
-        np.random.shuffle(indices)
-    
-    def data_generator():
-        """Generator function that yields batches of data."""
-        for i in range(0, n_samples, batch_size):
-            batch_indices = indices[i:i + batch_size]
-            # Convert indices to MLX array for indexing
-            batch_indices_mlx = mx.array(batch_indices)
-            X_batch = X_mlx[batch_indices_mlx]
-            y_batch = y_mlx[batch_indices_mlx]
-            yield X_batch, y_batch
-    
-    return data_generator, y_mean, y_std, X.shape[1], n_samples
+    # 6. Split into train and validation sets
+    if val_split > 0:
+        n_val = int(n_samples * val_split)
+        n_train = n_samples - n_val
+        
+        # Create indices for batching
+        indices = np.arange(n_samples)
+        if shuffle:
+            np.random.shuffle(indices)
+        
+        train_indices = indices[:n_train]
+        val_indices = indices[n_train:]
+        
+        print(f"Loaded {n_samples} valid alloys.")
+        print(f"  Training samples: {n_train}")
+        print(f"  Validation samples: {n_val}")
+        print(f"Input Features: Element fractions (range: [{X.min():.4f}, {X.max():.4f}], sum to 1.0)")
+        print(f"Target Property Normalized (Mean: {y_mean:.2f}, Std: {y_std:.2f})")
+        
+        def train_generator():
+            """Generator function that yields training batches."""
+            # Shuffle training indices each epoch
+            epoch_indices = train_indices.copy()
+            if shuffle:
+                np.random.shuffle(epoch_indices)
+            
+            for i in range(0, n_train, batch_size):
+                batch_indices = epoch_indices[i:i + batch_size]
+                batch_indices_mlx = mx.array(batch_indices)
+                X_batch = X_mlx[batch_indices_mlx]
+                y_batch = y_mlx[batch_indices_mlx]
+                yield X_batch, y_batch
+        
+        def val_generator():
+            """Generator function that yields validation batches."""
+            for i in range(0, n_val, batch_size):
+                batch_indices = val_indices[i:i + batch_size]
+                batch_indices_mlx = mx.array(batch_indices)
+                X_batch = X_mlx[batch_indices_mlx]
+                y_batch = y_mlx[batch_indices_mlx]
+                yield X_batch, y_batch
+        
+        return train_generator, val_generator, y_mean, y_std, X.shape[1], n_train, n_val
+    else:
+        # No validation split - return all data as training
+        print(f"Loaded {n_samples} valid alloys.")
+        print(f"Input Features: Element fractions (range: [{X.min():.4f}, {X.max():.4f}], sum to 1.0)")
+        print(f"Target Property Normalized (Mean: {y_mean:.2f}, Std: {y_std:.2f})")
+        
+        indices = np.arange(n_samples)
+        if shuffle:
+            np.random.shuffle(indices)
+        
+        def data_generator():
+            """Generator function that yields batches of data."""
+            epoch_indices = indices.copy()
+            if shuffle:
+                np.random.shuffle(epoch_indices)
+            
+            for i in range(0, n_samples, batch_size):
+                batch_indices = epoch_indices[i:i + batch_size]
+                batch_indices_mlx = mx.array(batch_indices)
+                X_batch = X_mlx[batch_indices_mlx]
+                y_batch = y_mlx[batch_indices_mlx]
+                yield X_batch, y_batch
+        
+        return data_generator, None, y_mean, y_std, X.shape[1], n_samples, 0
 
 # Usage example
 #if __name__ == "__main__":
