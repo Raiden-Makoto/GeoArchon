@@ -27,7 +27,9 @@ def property_guided_loss(recon_x, x, pred_y, y, mu, logvar, alpha=10.0, beta=1.0
     
     # 3. Regularization (KL Divergence)
     # Forces the latent space to be continuous and smooth.
-    loss_kld = -0.5 * mx.sum(1 + logvar - mx.power(mu, 2) - mx.exp(logvar))
+    # Normalize by batch size to make it comparable across different batch sizes
+    batch_size = mu.shape[0]
+    loss_kld = -0.5 * mx.sum(1 + logvar - mx.power(mu, 2) - mx.exp(logvar)) / batch_size
     
     # TOTAL LOSS
     # We multiply property loss by alpha to balance the scales.

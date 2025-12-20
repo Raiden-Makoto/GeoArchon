@@ -1,0 +1,39 @@
+============================================================
+HEA VAE Training Log
+============================================================
+Started: 2025-12-19 19:45:42
+Epochs: 25
+Batch Size: 64
+Alpha (property loss weight): 4.0
+Beta (KL divergence weight): 1.0
+Learning Rate: 0.001
+Data Path: data/MPEA_cleaned.csv
+============================================================
+
+Epoch 1/25 Summary: Total Loss=4.2158 | Chem_Err=0.0053 | Prop_Err=1.0431 | KLD=0.0559 | Components: Chem(0.0053) + Prop×α(4.1725) + KLD×β(0.0559)
+Epoch 2/25 Summary: Total Loss=4.0009 | Chem_Err=0.0051 | Prop_Err=0.9922 | KLD=0.0100 | Components: Chem(0.0051) + Prop×α(3.9686) + KLD×β(0.0100)
+Epoch 3/25 Summary: Total Loss=4.0359 | Chem_Err=0.0050 | Prop_Err=0.9993 | KLD=0.0176 | Components: Chem(0.0050) + Prop×α(3.9972) + KLD×β(0.0176)
+Epoch 4/25 Summary: Total Loss=4.0602 | Chem_Err=0.0050 | Prop_Err=0.9921 | KLD=0.0111 | Components: Chem(0.0050) + Prop×α(3.9683) + KLD×β(0.0111)
+Epoch 5/25 Summary: Total Loss=4.0166 | Chem_Err=0.0050 | Prop_Err=0.9984 | KLD=0.0068 | Components: Chem(0.0050) + Prop×α(3.9938) + KLD×β(0.0068)
+Epoch 6/25 Summary: Total Loss=4.0177 | Chem_Err=0.0050 | Prop_Err=0.9973 | KLD=0.0082 | Components: Chem(0.0050) + Prop×α(3.9893) + KLD×β(0.0082)
+Epoch 7/25 Summary: Total Loss=3.9871 | Chem_Err=0.0050 | Prop_Err=0.9987 | KLD=0.0080 | Components: Chem(0.0050) + Prop×α(3.9949) + KLD×β(0.0080)
+Epoch 8/25 Summary: Total Loss=3.9784 | Chem_Err=0.0050 | Prop_Err=0.9968 | KLD=0.0144 | Components: Chem(0.0050) + Prop×α(3.9872) + KLD×β(0.0144)
+Epoch 9/25 Summary: Total Loss=4.0087 | Chem_Err=0.0050 | Prop_Err=0.9970 | KLD=0.0223 | Components: Chem(0.0050) + Prop×α(3.9881) + KLD×β(0.0223)
+Epoch 10/25 Summary: Total Loss=3.9811 | Chem_Err=0.0049 | Prop_Err=0.9895 | KLD=0.0254 | Components: Chem(0.0049) + Prop×α(3.9581) + KLD×β(0.0254)
+Epoch 11/25 Summary: Total Loss=3.9685 | Chem_Err=0.0050 | Prop_Err=0.9810 | KLD=0.0397 | Components: Chem(0.0050) + Prop×α(3.9238) + KLD×β(0.0397)
+Epoch 12/25 Summary: Total Loss=3.9336 | Chem_Err=0.0049 | Prop_Err=0.9743 | KLD=0.0549 | Components: Chem(0.0049) + Prop×α(3.8974) + KLD×β(0.0549)
+Epoch 13/25 Summary: Total Loss=3.9078 | Chem_Err=0.0049 | Prop_Err=0.9511 | KLD=0.1095 | Components: Chem(0.0049) + Prop×α(3.8044) + KLD×β(0.1095)
+Epoch 14/25 Summary: Total Loss=3.8983 | Chem_Err=0.0049 | Prop_Err=0.9037 | KLD=0.1624 | Components: Chem(0.0049) + Prop×α(3.6146) + KLD×β(0.1624)
+Epoch 15/25 Summary: Total Loss=3.7601 | Chem_Err=0.0048 | Prop_Err=0.9101 | KLD=0.2168 | Components: Chem(0.0048) + Prop×α(3.6403) + KLD×β(0.2168)
+Epoch 16/25 Summary: Total Loss=3.6713 | Chem_Err=0.0047 | Prop_Err=0.8357 | KLD=0.2930 | Components: Chem(0.0047) + Prop×α(3.3428) + KLD×β(0.2930)
+Epoch 17/25 Summary: Total Loss=3.6871 | Chem_Err=0.0047 | Prop_Err=0.8353 | KLD=0.3569 | Components: Chem(0.0047) + Prop×α(3.3413) + KLD×β(0.3569)
+Epoch 18/25 Summary: Total Loss=3.7044 | Chem_Err=0.0048 | Prop_Err=0.8155 | KLD=0.4015 | Components: Chem(0.0048) + Prop×α(3.2619) + KLD×β(0.4015)
+Epoch 19/25 Summary: Total Loss=3.7145 | Chem_Err=0.0047 | Prop_Err=0.7568 | KLD=0.4536 | Components: Chem(0.0047) + Prop×α(3.0274) + KLD×β(0.4536)
+Epoch 20/25 Summary: Total Loss=3.6093 | Chem_Err=0.0047 | Prop_Err=0.7809 | KLD=0.4932 | Components: Chem(0.0047) + Prop×α(3.1236) + KLD×β(0.4932)
+Epoch 21/25 Summary: Total Loss=3.4724 | Chem_Err=0.0048 | Prop_Err=0.7881 | KLD=0.4756 | Components: Chem(0.0048) + Prop×α(3.1522) + KLD×β(0.4756)
+Epoch 22/25 Summary: Total Loss=3.4872 | Chem_Err=0.0048 | Prop_Err=0.7819 | KLD=0.4895 | Components: Chem(0.0048) + Prop×α(3.1278) + KLD×β(0.4895)
+Epoch 23/25 Summary: Total Loss=3.4447 | Chem_Err=0.0048 | Prop_Err=0.7501 | KLD=0.5340 | Components: Chem(0.0048) + Prop×α(3.0003) + KLD×β(0.5340)
+Epoch 24/25 Summary: Total Loss=3.6358 | Chem_Err=0.0048 | Prop_Err=0.7337 | KLD=0.5334 | Components: Chem(0.0048) + Prop×α(2.9348) + KLD×β(0.5334)
+Epoch 25/25 Summary: Total Loss=3.4224 | Chem_Err=0.0048 | Prop_Err=0.6984 | KLD=0.5547 | Components: Chem(0.0048) + Prop×α(2.7935) + KLD×β(0.5547)
+
+Training completed: 2025-12-19 19:45:44

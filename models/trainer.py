@@ -10,7 +10,7 @@ from utils.loss_funcs import property_guided_loss
 from mlx.optimizers import AdamW
 
 class Trainer():
-    def __init__(self, model=None, opt=None, alpha: float=10.0, beta: float=1.0):
+    def __init__(self, model=None, opt=None, alpha: float=4.0, beta: float=1.0):
         self.model = HEA_VAE() if model is None else model
         self.opt = AdamW(learning_rate=1e-4) if opt is None else opt
         self.alpha = alpha
@@ -34,7 +34,7 @@ class Trainer():
         self.loss_fn = loss_fn
         self.loss_and_grad_fn = mx.value_and_grad(loss_fn)
 
-    def train(self, epochs: int=1, csv_path='data/MPEA_cleaned.csv', batch_size=64):
+    def train(self, epochs: int=1, csv_path='data/MPEA_cleaned.csv', batch_size=64, log_file=None):
         """
         Train the HEA VAE model using MLX.
         
@@ -42,6 +42,7 @@ class Trainer():
             epochs: Number of training epochs
             csv_path: Path to the CSV data file
             batch_size: Batch size for training
+            log_file: Optional path to log file for writing training summaries
         """
         # Load data - returns generator function, not dataloader
         data_gen, y_mean, y_std, input_dim, n_samples = load_hea_data(
@@ -57,6 +58,7 @@ class Trainer():
             total_loss = 0.0
             chem_loss_acc = 0.0
             prop_loss_acc = 0.0
+            kld_loss_acc = 0.0
             
             # Create progress bar for this epoch
             pbar = tqdm(data_gen(), total=n_batches_per_epoch, 
@@ -79,17 +81,28 @@ class Trainer():
                 recon_x, pred_y, mu, logvar = self.model(x_batch)
                 loss_chem = float(nn.losses.mse_loss(recon_x, x_batch, reduction='mean'))
                 loss_prop = float(nn.losses.mse_loss(pred_y, y_batch, reduction='mean'))
+                # KL divergence term (normalized by batch size)
+                batch_size = mu.shape[0]
+                loss_kld = float(-0.5 * mx.sum(1 + logvar - mx.power(mu, 2) - mx.exp(logvar)) / batch_size)
+                
+                # Diagnostic: check if posterior is collapsing
+                mu_mean = float(mx.mean(mx.abs(mu)))
+                logvar_mean = float(mx.mean(logvar))
                 
                 # Track metrics
                 total_loss += float(loss_val)
                 chem_loss_acc += float(loss_chem)
                 prop_loss_acc += float(loss_prop)
+                kld_loss_acc += float(loss_kld)
                 
                 # Update progress bar with current metrics
                 pbar.set_postfix({
                     'Loss': f'{loss_val:.4f}',
-                    'Chem': f'{loss_chem:.2f}',
-                    'Prop': f'{loss_prop:.2f}'
+                    'Chem': f'{loss_chem:.4f}',
+                    'Prop': f'{loss_prop:.4f}',
+                    'KLD': f'{loss_kld:.4f}',
+                    #'|mu|': f'{mu_mean:.3f}',
+                    #'logvar': f'{logvar_mean:.2f}'
                 })
             
             # Close progress bar and print epoch summary
@@ -97,8 +110,17 @@ class Trainer():
             avg_loss = total_loss / n_batches_per_epoch if n_batches_per_epoch > 0 else 0.0
             avg_chem = chem_loss_acc / n_batches_per_epoch if n_batches_per_epoch > 0 else 0.0
             avg_prop = prop_loss_acc / n_batches_per_epoch if n_batches_per_epoch > 0 else 0.0
+            avg_kld = kld_loss_acc / n_batches_per_epoch if n_batches_per_epoch > 0 else 0.0
             
-            print(f"Epoch {epoch}/{epochs} Summary: Total Loss={avg_loss:.4f} | "
-                  f"Chem_Err={avg_chem:.4f} | Prop_Err={avg_prop:.4f}")
+            # Calculate weighted components for analysis
+            weighted_prop = avg_prop * self.alpha
+            weighted_kld = avg_kld * self.beta
+            
+            # Log epoch summary
+            summary = f"Epoch {epoch}/{epochs} Summary: Total Loss={avg_loss:.4f} | Chem_Err={avg_chem:.4f} | Prop_Err={avg_prop:.4f} | KLD={avg_kld:.4f} | Components: Chem({avg_chem:.4f}) + Prop×α({weighted_prop:.4f}) + KLD×β({weighted_kld:.4f})\n"
+            
+            if log_file:
+                with open(log_file, 'a') as f:
+                    f.write(summary)
 
         print("Training Complete.")
