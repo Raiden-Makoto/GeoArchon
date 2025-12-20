@@ -16,9 +16,10 @@ class Trainer():
         self.opt = AdamW(learning_rate=1e-4) if opt is None else opt
         self.alpha = alpha
         self.beta = beta
-        
+
         # Create loss and gradient function using MLX's value_and_grad
-        def loss_fn(model, x, y):
+        # Note: beta will be dynamically set during training for KL annealing
+        def loss_fn(model, x, y, beta_val):
             recon_x, pred_y, mu, logvar = model(x)
             loss = property_guided_loss(
                 recon_x,
@@ -28,16 +29,22 @@ class Trainer():
                 mu,
                 logvar, 
                 alpha=self.alpha,
-                beta=self.beta
+                beta=beta_val
             )
             return loss
         
         self.loss_fn = loss_fn
-        self.loss_and_grad_fn = mx.value_and_grad(loss_fn)
+        # Create a function that returns value_and_grad with current beta
+        def get_loss_and_grad_fn(beta_val):
+            def loss_fn_with_beta(model, x, y):
+                return loss_fn(model, x, y, beta_val)
+            return mx.value_and_grad(loss_fn_with_beta)
+        
+        self.get_loss_and_grad_fn = get_loss_and_grad_fn
 
     def train(self, epochs: int=1, csv_path='data/MPEA_cleaned.csv', batch_size=64, 
               log_file=None, val_split=0.2, early_stopping_patience=10, early_stopping_min_delta=0.0,
-              save_dir='models'):
+              save_dir='models', kl_annealing_epochs=0, kl_annealing_start=0.0):
         """
         Train the HEA VAE model using MLX.
         
@@ -50,6 +57,8 @@ class Trainer():
             early_stopping_patience: Number of epochs to wait before stopping if no improvement
             early_stopping_min_delta: Minimum change to qualify as an improvement
             save_dir: Directory to save model checkpoints (default: 'models')
+            kl_annealing_epochs: Number of epochs to anneal KL weight from start to target (0 = no annealing)
+            kl_annealing_start: Starting value for beta (KL weight) during annealing (default: 0.0)
         """
         # Load data - returns generator functions for train and validation
         train_gen, val_gen, y_mean, y_std, input_dim, n_train, n_val = load_hea_data(
@@ -68,6 +77,24 @@ class Trainer():
         patience_counter = 0
         best_epoch = 0
         
+        # KL Annealing setup
+        use_kl_annealing = kl_annealing_epochs > 0
+        if use_kl_annealing:
+            print(f"KL Annealing enabled: beta will increase from {kl_annealing_start:.4f} to {self.beta:.4f} over {kl_annealing_epochs} epochs")
+            if log_file:
+                with open(log_file, 'a') as f:
+                    f.write(f"KL Annealing: beta from {kl_annealing_start:.4f} to {self.beta:.4f} over {kl_annealing_epochs} epochs\n")
+        else:
+            # No annealing - early stopping is active from the start
+            print(f"\n{'='*60}")
+            print(f"Early Stopping Active (No KL Annealing)")
+            print(f"  Beta (KL weight): {self.beta:.4f}")
+            print(f"  Early stopping patience: {early_stopping_patience} epochs")
+            print(f"{'='*60}\n")
+            if log_file:
+                with open(log_file, 'a') as f:
+                    f.write(f"\nEarly Stopping Active (No KL Annealing) - patience={early_stopping_patience}\n")
+        
         # Create models directory if it doesn't exist
         if save_dir:
             os.makedirs(save_dir, exist_ok=True)
@@ -75,12 +102,43 @@ class Trainer():
             model_path = os.path.join(save_dir, "hea_vae_best.npz")
         else:
             model_path = None
-        
+
         for epoch in range(1, 1+epochs):
             total_loss = 0.0
             chem_loss_acc = 0.0
             prop_loss_acc = 0.0
             kld_loss_acc = 0.0
+            
+            # Compute annealed beta for this epoch
+            if use_kl_annealing:
+                # Linear annealing: beta = start + (target - start) * min(1.0, epoch / annealing_epochs)
+                annealing_progress = min(1.0, epoch / kl_annealing_epochs)
+                current_beta = kl_annealing_start + (self.beta - kl_annealing_start) * annealing_progress
+            else:
+                current_beta = self.beta
+            
+            # Check if annealing just completed (transition from annealing to non-annealing)
+            is_annealing = use_kl_annealing and epoch <= kl_annealing_epochs
+            was_annealing = use_kl_annealing and (epoch - 1) <= kl_annealing_epochs and (epoch - 1) > 0
+            annealing_just_completed = was_annealing and not is_annealing
+            
+            # Reset patience counter and best validation loss when annealing completes
+            # This is important because the loss scale changes significantly when beta goes from 0 to target
+            if annealing_just_completed:
+                patience_counter = 0
+                best_val_loss = float('inf')  # Reset to allow model to establish new baseline
+                best_epoch = 0
+                print(f"\n{'='*60}")
+                print(f"KL Annealing Complete: Early Stopping Now Active")
+                print(f"  Beta has reached target value: {self.beta:.4f}")
+                print(f"  Early stopping patience: {early_stopping_patience} epochs")
+                print(f"{'='*60}\n")
+                if log_file:
+                    with open(log_file, 'a') as f:
+                        f.write(f"\nKL Annealing Complete: Early Stopping Now Active (patience={early_stopping_patience})\n")
+            
+            # Get loss and grad function with current beta
+            loss_and_grad_fn = self.get_loss_and_grad_fn(current_beta)
             
             # Create progress bar for this epoch
             pbar = tqdm(train_gen(), total=n_batches_per_epoch, 
@@ -89,8 +147,8 @@ class Trainer():
             
             # Iterate through training batches
             for x_batch, y_batch in pbar:
-                # Forward pass and compute gradients
-                loss, grads = self.loss_and_grad_fn(self.model, x_batch, y_batch)
+                # Forward pass and compute gradients with current beta
+                loss, grads = loss_and_grad_fn(self.model, x_batch, y_batch)
                 
                 # Update model parameters (MLX optimizer updates model in place)
                 self.opt.update(self.model, grads)
@@ -142,11 +200,13 @@ class Trainer():
                 val_loss_total = 0.0
                 for x_val, y_val in val_gen():
                     recon_x, pred_y, mu, logvar = self.model(x_val)
-                    val_loss_batch = self.loss_fn(self.model, x_val, y_val)
+                    val_loss_batch = self.loss_fn(self.model, x_val, y_val, current_beta)
                     val_loss_total += float(val_loss_batch)
                 val_loss = val_loss_total / n_val_batches
                 
-                # Early stopping check
+                # Early stopping check (disabled during KL annealing)
+                is_annealing = use_kl_annealing and epoch <= kl_annealing_epochs
+                
                 if val_loss < best_val_loss - early_stopping_min_delta:
                     best_val_loss = val_loss
                     best_epoch = epoch
@@ -157,28 +217,38 @@ class Trainer():
                         self.model.save_weights(model_path)
                         print(f"  -> Saved best model to {model_path}")
                 else:
-                    patience_counter += 1
+                    # Only increment patience counter if not in annealing phase
+                    if not is_annealing:
+                        patience_counter += 1
                 
                 # Log epoch summary with validation
                 weighted_prop = avg_prop * self.alpha
-                weighted_kld = avg_kld * self.beta
-                summary = f"Epoch {epoch}/{epochs} Summary: Train Loss={avg_loss:.4f} | Val Loss={val_loss:.4f} | Chem={avg_chem:.4f} | Prop={avg_prop:.4f} | KLD={avg_kld:.4f}"
-                if patience_counter > 0:
+                weighted_kld = avg_kld * current_beta
+                summary = f"Epoch {epoch}/{epochs} Summary: Train Loss={avg_loss:.4f} | Val Loss={val_loss:.4f} | Chem={avg_chem:.4f} | Prop={avg_prop:.4f} | KLD={avg_kld:.4f} | Beta={current_beta:.4f}"
+                if not is_annealing and patience_counter > 0:
                     summary += f" | Patience: {patience_counter}/{early_stopping_patience}"
+                if is_annealing:
+                    summary += " | (Annealing - early stopping disabled)"
                 summary += "\n"
                 
-                print(f"Epoch {epoch}/{epochs}: Train Loss={avg_loss:.4f}, Val Loss={val_loss:.4f}, Best Val Loss={best_val_loss:.4f} (epoch {best_epoch})")
+                beta_info = f" (beta={current_beta:.4f})" if use_kl_annealing else ""
+                annealing_info = " [Annealing]" if is_annealing else ""
+                print(f"Epoch {epoch}/{epochs}: Train Loss={avg_loss:.4f}, Val Loss={val_loss:.4f}, Best Val Loss={best_val_loss:.4f} (epoch {best_epoch}){beta_info}{annealing_info}")
                 
                 if log_file:
                     with open(log_file, 'a') as f:
                         f.write(summary)
                 
-                # Early stopping
-                if patience_counter >= early_stopping_patience:
-                    print(f"\nEarly stopping triggered! No improvement for {early_stopping_patience} epochs.")
-                    print(f"Best validation loss: {best_val_loss:.4f} at epoch {best_epoch}")
+                # Early stopping (ONLY after annealing completes - double check)
+                # Ensure we're not in annealing phase before checking early stopping
+                if not is_annealing and patience_counter >= early_stopping_patience:
+                    print(f"\n{'='*60}")
+                    print(f"Early Stopping Triggered!")
+                    print(f"  No improvement for {early_stopping_patience} epochs")
+                    print(f"  Best validation loss: {best_val_loss:.4f} at epoch {best_epoch}")
                     if model_path:
-                        print(f"Best model saved at: {model_path}")
+                        print(f"  Best model saved at: {model_path}")
+                    print(f"{'='*60}\n")
                     if log_file:
                         with open(log_file, 'a') as f:
                             f.write(f"\nEarly stopping at epoch {epoch}. Best val loss: {best_val_loss:.4f} at epoch {best_epoch}\n")

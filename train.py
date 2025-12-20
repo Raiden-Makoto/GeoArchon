@@ -32,6 +32,10 @@ def main():
                         help='Number of epochs to wait before early stopping (default: 5)')
     parser.add_argument('--early-stopping-min-delta', type=float, default=0.0,
                         help='Minimum change to qualify as improvement (default: 0.0)')
+    parser.add_argument('--kl-annealing-epochs', type=int, default=10,
+                        help='Number of epochs to anneal KL weight from start to target (0 = no annealing, default: 10)')
+    parser.add_argument('--kl-annealing-start', type=float, default=0.0,
+                        help='Starting value for beta (KL weight) during annealing (default: 0.0)')
     
     args = parser.parse_args()
     
@@ -56,6 +60,8 @@ def main():
     if args.val_split > 0:
         print(f"Early Stopping Patience: {args.early_stopping_patience}")
         print(f"Early Stopping Min Delta: {args.early_stopping_min_delta}")
+    if args.kl_annealing_epochs > 0:
+        print(f"KL Annealing: {args.kl_annealing_start:.4f} -> {args.beta:.4f} over {args.kl_annealing_epochs} epochs")
     print(f"Log File: {log_file}")
     print("=" * 60)
     print()
@@ -76,6 +82,8 @@ def main():
         if args.val_split > 0:
             f.write(f"Early Stopping Patience: {args.early_stopping_patience}\n")
             f.write(f"Early Stopping Min Delta: {args.early_stopping_min_delta}\n")
+        if args.kl_annealing_epochs > 0:
+            f.write(f"KL Annealing: {args.kl_annealing_start:.4f} -> {args.beta:.4f} over {args.kl_annealing_epochs} epochs\n")
         f.write("=" * 60 + "\n\n")
     
     # Initialize optimizer with specified learning rate
@@ -93,7 +101,9 @@ def main():
         val_split=args.val_split,
         early_stopping_patience=args.early_stopping_patience,
         early_stopping_min_delta=args.early_stopping_min_delta,
-        save_dir='models'
+        save_dir='models',
+        kl_annealing_epochs=args.kl_annealing_epochs,
+        kl_annealing_start=args.kl_annealing_start
     )
     
     # Write completion to log file

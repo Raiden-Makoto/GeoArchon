@@ -5,7 +5,7 @@ class HEA_VAE(nn.Module):
     def __init__(
         self,
         input_dim: int=30, # 30 unique elements
-        latent_dim: int=2, #[2, 4, 8]
+        latent_dim: int=4, #[2, 4, 8]
         hidden_dim: int=128,
     ):
         super().__init__()
@@ -18,14 +18,16 @@ class HEA_VAE(nn.Module):
         self.dec_out = nn.Linear(hidden_dim, input_dim)
 
         self.regressor = [
-            nn.Linear(latent_dim, 16),
-            nn.ReLU(),
-            nn.Linear(16, 1)
+            nn.Linear(latent_dim, 64),  # Widen to 64
+            nn.LeakyReLU(),
+            nn.Linear(64, 64),          # Add depth (extra layer)
+            nn.LeakyReLU(),
+            nn.Linear(64, 1)
         ]
 
     def encode(self, x):
-        h = nn.relu(self.enc1(x))
-        h = nn.relu(self.enc2(h))
+        h = nn.leaky_relu(self.enc1(x))
+        h = nn.leaky_relu(self.enc2(h))
         mu = self.fc_mu(h)
         logvar = self.fc_logvar(h)
         return mu, logvar
@@ -36,8 +38,8 @@ class HEA_VAE(nn.Module):
         return mu + eps * std
 
     def decode(self, z):
-        h = nn.relu(self.dec1(z))
-        h = nn.relu(self.dec2(h))
+        h = nn.leaky_relu(self.dec1(z))
+        h = nn.leaky_relu(self.dec2(h))
         x = nn.softmax(self.dec_out(h))
         return x
 
