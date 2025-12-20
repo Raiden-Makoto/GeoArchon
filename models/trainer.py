@@ -80,11 +80,22 @@ class Trainer():
         
         # KL Annealing setup
         use_kl_annealing = kl_annealing_epochs > 0
+        
+        # Learning rate scheduling: decrease LR during last 20% of annealing epochs
+        initial_lr = self.opt.learning_rate
+        final_lr = initial_lr * 0.1  # 1e-3 -> 1e-4
+        lr_decay_start_epoch = int(kl_annealing_epochs * 0.8) if use_kl_annealing else epochs + 1
+        lr_decay_epochs = kl_annealing_epochs - lr_decay_start_epoch if use_kl_annealing else 0
+        
         if use_kl_annealing:
             print(f"KL Annealing enabled: beta will increase from {kl_annealing_start:.4f} to {self.beta:.4f} over {kl_annealing_epochs} epochs")
+            if lr_decay_epochs > 0:
+                print(f"Learning rate decay: {initial_lr:.2e} -> {final_lr:.2e} over epochs {lr_decay_start_epoch+1}-{kl_annealing_epochs} (last {lr_decay_epochs} epochs of annealing)")
             if log_file:
                 with open(log_file, 'a') as f:
                     f.write(f"KL Annealing: beta from {kl_annealing_start:.4f} to {self.beta:.4f} over {kl_annealing_epochs} epochs\n")
+                    if lr_decay_epochs > 0:
+                        f.write(f"Learning rate decay: {initial_lr:.2e} -> {final_lr:.2e} over epochs {lr_decay_start_epoch+1}-{kl_annealing_epochs}\n")
         else:
             # No annealing - early stopping is active from the start
             print(f"\n{'='*60}")
@@ -122,6 +133,25 @@ class Trainer():
             is_annealing = use_kl_annealing and epoch <= kl_annealing_epochs
             was_annealing = use_kl_annealing and (epoch - 1) <= kl_annealing_epochs and (epoch - 1) > 0
             annealing_just_completed = was_annealing and not is_annealing
+            
+            # Learning rate decay during last 20% of annealing epochs
+            if use_kl_annealing and lr_decay_epochs > 0 and epoch > lr_decay_start_epoch and epoch <= kl_annealing_epochs:
+                # Linear decay over the last 20% of annealing epochs
+                lr_decay_progress = (epoch - lr_decay_start_epoch) / lr_decay_epochs
+                current_lr = initial_lr + (final_lr - initial_lr) * lr_decay_progress
+                self.opt.learning_rate = current_lr
+                if epoch == lr_decay_start_epoch + 1:
+                    # Log when LR decay starts
+                    if log_file:
+                        with open(log_file, 'a') as f:
+                            f.write(f"Epoch {epoch}: Learning rate decay started: {initial_lr:.2e} -> {final_lr:.2e}\n")
+            elif not is_annealing and use_kl_annealing and lr_decay_epochs > 0:
+                # After annealing, keep LR at final value (only set once)
+                if self.opt.learning_rate != final_lr:
+                    self.opt.learning_rate = final_lr
+                    if log_file:
+                        with open(log_file, 'a') as f:
+                            f.write(f"Epoch {epoch}: Learning rate set to final value: {final_lr:.2e}\n")
             
             # Reset patience counter and best validation property error when annealing completes
             # This is important because the loss scale changes significantly when beta goes from 0 to target

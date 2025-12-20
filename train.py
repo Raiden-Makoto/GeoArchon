@@ -36,16 +36,21 @@ def main():
                         help='Number of epochs to anneal KL weight from start to target (0 = no annealing, default: 50)')
     parser.add_argument('--kl-annealing-start', type=float, default=0.0,
                         help='Starting value for beta (KL weight) during annealing (default: 0.0)')
+    parser.add_argument('--log', action='store_true', default=False,
+                        help='Enable logging to file (default: False, logging disabled)')
     
     args = parser.parse_args()
     
-    # Create logs directory if it doesn't exist
-    logs_dir = "logs"
-    os.makedirs(logs_dir, exist_ok=True)
-    
-    # Create log file with timestamp in logs folder
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = os.path.join(logs_dir, f"training_{timestamp}.log")
+    # Create log file only if logging is enabled
+    log_file = None
+    if args.log:
+        # Create logs directory if it doesn't exist
+        logs_dir = "logs"
+        os.makedirs(logs_dir, exist_ok=True)
+        
+        # Create log file with timestamp in logs folder
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_file = os.path.join(logs_dir, f"training_{timestamp}.log")
     
     print("=" * 60)
     print("HEA VAE Training")
@@ -62,29 +67,33 @@ def main():
         print(f"Early Stopping Min Delta: {args.early_stopping_min_delta}")
     if args.kl_annealing_epochs > 0:
         print(f"KL Annealing: {args.kl_annealing_start:.4f} -> {args.beta:.4f} over {args.kl_annealing_epochs} epochs")
-    print(f"Log File: {log_file}")
+    if log_file:
+        print(f"Log File: {log_file}")
+    else:
+        print("Logging: Disabled")
     print("=" * 60)
     print()
     
-    # Write header to log file
-    with open(log_file, 'w') as f:
-        f.write("=" * 60 + "\n")
-        f.write("HEA VAE Training Log\n")
-        f.write("=" * 60 + "\n")
-        f.write(f"Started: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write(f"Epochs: {args.epochs}\n")
-        f.write(f"Batch Size: {args.batch_size}\n")
-        f.write(f"Alpha (property loss weight): {args.alpha}\n")
-        f.write(f"Beta (KL divergence weight): {args.beta}\n")
-        f.write(f"Learning Rate: {args.lr}\n")
-        f.write(f"Data Path: {args.csv_path}\n")
-        f.write(f"Validation Split: {args.val_split}\n")
-        if args.val_split > 0:
-            f.write(f"Early Stopping Patience: {args.early_stopping_patience}\n")
-            f.write(f"Early Stopping Min Delta: {args.early_stopping_min_delta}\n")
-        if args.kl_annealing_epochs > 0:
-            f.write(f"KL Annealing: {args.kl_annealing_start:.4f} -> {args.beta:.4f} over {args.kl_annealing_epochs} epochs\n")
-        f.write("=" * 60 + "\n\n")
+    # Write header to log file only if logging is enabled
+    if log_file:
+        with open(log_file, 'w') as f:
+            f.write("=" * 60 + "\n")
+            f.write("HEA VAE Training Log\n")
+            f.write("=" * 60 + "\n")
+            f.write(f"Started: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Epochs: {args.epochs}\n")
+            f.write(f"Batch Size: {args.batch_size}\n")
+            f.write(f"Alpha (property loss weight): {args.alpha}\n")
+            f.write(f"Beta (KL divergence weight): {args.beta}\n")
+            f.write(f"Learning Rate: {args.lr}\n")
+            f.write(f"Data Path: {args.csv_path}\n")
+            f.write(f"Validation Split: {args.val_split}\n")
+            if args.val_split > 0:
+                f.write(f"Early Stopping Patience: {args.early_stopping_patience}\n")
+                f.write(f"Early Stopping Min Delta: {args.early_stopping_min_delta}\n")
+            if args.kl_annealing_epochs > 0:
+                f.write(f"KL Annealing: {args.kl_annealing_start:.4f} -> {args.beta:.4f} over {args.kl_annealing_epochs} epochs\n")
+            f.write("=" * 60 + "\n\n")
     
     # Initialize optimizer with specified learning rate
     optimizer = AdamW(learning_rate=args.lr)
@@ -106,9 +115,10 @@ def main():
         kl_annealing_start=args.kl_annealing_start
     )
     
-    # Write completion to log file
-    with open(log_file, 'a') as f:
-        f.write(f"\nTraining completed: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+    # Write completion to log file if logging is enabled
+    if log_file:
+        with open(log_file, 'a') as f:
+            f.write(f"\nTraining completed: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
     
     print()
     print("=" * 60)
