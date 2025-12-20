@@ -31,9 +31,19 @@ def load_hea_data(csv_path='data/MPEA_cleaned.csv', batch_size=64, shuffle=True)
     df_clean = df.dropna(subset=[target_col]).copy()
     
     # 3. Extract Features (X)
-    # The first 30 columns are the element fractions
-    element_cols = df.columns[:30]
-    X = df_clean[element_cols].values.astype(np.float32)
+    # Skip the first column (index) and get the next 30 columns (element fractions)
+    # Columns 1-30 are the element fractions (Al, Co, Fe, Ni, Si, ...)
+    # These are compositional data: values in [0,1] and sum to 1 per sample
+    # We preserve this constraint by NOT normalizing X
+    X = df_clean.iloc[:, 1:31].values.astype(np.float32)  # Skip index column (0), get columns 1-30
+    
+    # Verify compositional constraint (should sum to ~1.0 per sample)
+    X_sums = X.sum(axis=1)
+    if not np.allclose(X_sums, 1.0, atol=1e-5):
+        print(f"Warning: Some samples don't sum to 1.0 (min={X_sums.min():.6f}, max={X_sums.max():.6f})")
+    
+    # Keep X as-is to preserve compositional constraint
+    # Element fractions are already in [0,1] range, suitable for neural networks
     
     # 4. Extract Targets (y) and Normalize
     y = df_clean[target_col].values.astype(np.float32).reshape(-1, 1)
@@ -46,12 +56,14 @@ def load_hea_data(csv_path='data/MPEA_cleaned.csv', batch_size=64, shuffle=True)
     y_norm = (y - y_mean) / y_std
     
     # 5. Convert to MLX arrays
+    # X is kept as raw element fractions (preserves compositional constraint: sum to 1)
     X_mlx = mx.array(X)
     y_mlx = mx.array(y_norm)
     
     n_samples = len(X_mlx)
     
     print(f"Loaded {n_samples} valid alloys.")
+    print(f"Input Features: Element fractions (range: [{X.min():.4f}, {X.max():.4f}], sum to 1.0)")
     print(f"Target Property Normalized (Mean: {y_mean:.2f}, Std: {y_std:.2f})")
     
     # 6. Create indices for batching

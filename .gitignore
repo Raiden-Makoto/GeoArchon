@@ -1,3 +1,4 @@
 *.csv
 *.cif
 *.pt
+__pycache__

@@ -10,7 +10,7 @@ class HEA_VAE(nn.Module):
     ):
         super().__init__()
         self.enc1 = nn.Linear(input_dim, hidden_dim)
-        self.enc1 = nn.Linear(hidden_dim, hidden_dim)
+        self.enc2 = nn.Linear(hidden_dim, hidden_dim)
         self.fc_mu = nn.Linear(hidden_dim, latent_dim)
         self.fc_logvar = nn.Linear(hidden_dim, latent_dim)
         self.dec1 = nn.Linear(latent_dim, hidden_dim)
@@ -30,9 +30,9 @@ class HEA_VAE(nn.Module):
         logvar = self.fc_logvar(h)
         return mu, logvar
 
-    def reparamaterize(mu, logvar):
+    def reparameterize(self, mu, logvar):
         std = mx.exp(0.5 * logvar)
-        eps = mx.random.uniform(shape=std.size)
+        eps = mx.random.normal(shape=mu.shape)
         return mu + eps * std
 
     def decode(self, z):
@@ -49,8 +49,8 @@ class HEA_VAE(nn.Module):
 
     def __call__(self, inputs):
         mu, logvar = self.encode(inputs)
-        z = self.reparamaterize(mu, logvar)
-        x = self.decoder(z)
+        z = self.reparameterize(mu, logvar)
+        x = self.decode(z)
         prop = self.predict(z)
         return x, prop, mu, logvar
 
