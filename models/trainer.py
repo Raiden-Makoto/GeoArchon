@@ -73,7 +73,8 @@ class Trainer():
         n_val_batches = (n_val + batch_size - 1) // batch_size if n_val > 0 else 0
         
         # Early stopping variables
-        best_val_loss = float('inf')
+        # Monitor property error (not total loss) to avoid false triggers during KL annealing
+        best_val_prop_err = float('inf')
         patience_counter = 0
         best_epoch = 0
         
@@ -122,11 +123,11 @@ class Trainer():
             was_annealing = use_kl_annealing and (epoch - 1) <= kl_annealing_epochs and (epoch - 1) > 0
             annealing_just_completed = was_annealing and not is_annealing
             
-            # Reset patience counter and best validation loss when annealing completes
+            # Reset patience counter and best validation property error when annealing completes
             # This is important because the loss scale changes significantly when beta goes from 0 to target
             if annealing_just_completed:
                 patience_counter = 0
-                best_val_loss = float('inf')  # Reset to allow model to establish new baseline
+                best_val_prop_err = float('inf')  # Reset to allow model to establish new baseline
                 best_epoch = 0
                 print(f"\n{'='*60}")
                 print(f"KL Annealing Complete: Early Stopping Now Active")
@@ -175,15 +176,8 @@ class Trainer():
                 prop_loss_acc += float(loss_prop)
                 kld_loss_acc += float(loss_kld)
                 
-                # Update progress bar with current metrics
-                pbar.set_postfix({
-                    'Loss': f'{loss_val:.4f}',
-                    'Chem': f'{loss_chem:.4f}',
-                    'Prop': f'{loss_prop:.4f}',
-                    'KLD': f'{loss_kld:.4f}',
-                    #'|mu|': f'{mu_mean:.3f}',
-                    #'logvar': f'{logvar_mean:.2f}'
-                })
+                # Update progress bar with essential metrics only
+                pbar.set_postfix({'Loss': f'{loss_val:.4f}'})
             
             # Close progress bar
             pbar.close()
@@ -196,30 +190,48 @@ class Trainer():
             
             # Evaluate on validation set if available
             val_loss = None
+            val_prop_err = None
             if val_gen is not None and n_val_batches > 0:
                 val_loss_total = 0.0
+                val_prop_err_total = 0.0
                 for x_val, y_val in val_gen():
                     recon_x, pred_y, mu, logvar = self.model(x_val)
                     val_loss_batch = self.loss_fn(self.model, x_val, y_val, current_beta)
                     val_loss_total += float(val_loss_batch)
+                    # Compute property error separately for early stopping
+                    val_prop_err_batch = float(nn.losses.mse_loss(pred_y, y_val, reduction='sum'))
+                    val_prop_err_total += val_prop_err_batch
                 val_loss = val_loss_total / n_val_batches
+                val_prop_err = val_prop_err_total / n_val_batches
                 
-                # Early stopping check (disabled during KL annealing)
+                # Early stopping check (ONLY active after annealing completes)
+                # Monitor PROPERTY ERROR, not total loss, to avoid false triggers during KL annealing
                 is_annealing = use_kl_annealing and epoch <= kl_annealing_epochs
                 
-                if val_loss < best_val_loss - early_stopping_min_delta:
-                    best_val_loss = val_loss
-                    best_epoch = epoch
-                    patience_counter = 0
-                    
-                    # Save best model
-                    if model_path:
-                        self.model.save_weights(model_path)
-                        print(f"  -> Saved best model to {model_path}")
-                else:
-                    # Only increment patience counter if not in annealing phase
-                    if not is_annealing:
+                # Only track best model and update patience AFTER annealing completes
+                if not is_annealing:
+                    if val_prop_err < best_val_prop_err - early_stopping_min_delta:
+                        best_val_prop_err = val_prop_err
+                        best_epoch = epoch
+                        patience_counter = 0
+                        
+                        # Save best model
+                        if model_path:
+                            self.model.save_weights(model_path)
+                            print(f"  -> Saved best model to {model_path}")
+                    else:
+                        # Increment patience counter only after annealing
                         patience_counter += 1
+                else:
+                    # During annealing: save model if it's the best so far (for recovery), but don't track for early stopping
+                    # This allows us to keep the best model even during annealing
+                    if val_prop_err < best_val_prop_err:
+                        best_val_prop_err = val_prop_err
+                        best_epoch = epoch
+                        if model_path:
+                            self.model.save_weights(model_path)
+                            print(f"  -> Saved best model to {model_path}")
+                    # Do NOT increment patience counter during annealing
                 
                 # Log epoch summary with validation
                 weighted_prop = avg_prop * self.alpha
@@ -231,27 +243,31 @@ class Trainer():
                     summary += " | (Annealing - early stopping disabled)"
                 summary += "\n"
                 
-                beta_info = f" (beta={current_beta:.4f})" if use_kl_annealing else ""
-                annealing_info = " [Annealing]" if is_annealing else ""
-                print(f"Epoch {epoch}/{epochs}: Train Loss={avg_loss:.4f}, Val Loss={val_loss:.4f}, Best Val Loss={best_val_loss:.4f} (epoch {best_epoch}){beta_info}{annealing_info}")
+                #beta_info = f" (beta={current_beta:.4f})" if use_kl_annealing else ""
+                #annealing_info = " [Annealing]" if is_annealing else ""
+                #print(f"Epoch {epoch}/{epochs}: Train Loss={avg_loss:.4f}, Val Loss={val_loss:.4f}, Val Prop Err={val_prop_err:.4f}, Best Prop Err={best_val_prop_err:.4f} (epoch {best_epoch}){beta_info}{annealing_info}")
                 
                 if log_file:
                     with open(log_file, 'a') as f:
                         f.write(summary)
                 
-                # Early stopping (ONLY after annealing completes - double check)
-                # Ensure we're not in annealing phase before checking early stopping
+                # Early stopping (ONLY after annealing completes - CRITICAL: must check is_annealing)
+                # Monitor PROPERTY ERROR, not total loss, to avoid false triggers during KL annealing
+                # Early stopping can ONLY trigger if:
+                #   1. Annealing is complete (not is_annealing)
+                #   2. We've waited at least 'patience' epochs after annealing started monitoring
                 if not is_annealing and patience_counter >= early_stopping_patience:
                     print(f"\n{'='*60}")
                     print(f"Early Stopping Triggered!")
-                    print(f"  No improvement for {early_stopping_patience} epochs")
-                    print(f"  Best validation loss: {best_val_loss:.4f} at epoch {best_epoch}")
+                    print(f"  No improvement in property error for {early_stopping_patience} epochs")
+                    print(f"  Best validation property error: {best_val_prop_err:.4f} at epoch {best_epoch}")
+                    print(f"  (Total validation loss: {val_loss:.4f})")
                     if model_path:
                         print(f"  Best model saved at: {model_path}")
                     print(f"{'='*60}\n")
                     if log_file:
                         with open(log_file, 'a') as f:
-                            f.write(f"\nEarly stopping at epoch {epoch}. Best val loss: {best_val_loss:.4f} at epoch {best_epoch}\n")
+                            f.write(f"\nEarly stopping at epoch {epoch}. Best val prop error: {best_val_prop_err:.4f} at epoch {best_epoch}\n")
                             if model_path:
                                 f.write(f"Best model saved at: {model_path}\n")
                     break
@@ -268,6 +284,6 @@ class Trainer():
         # Final summary
         print("Training Complete.")
         if val_gen is not None and best_epoch > 0:
-            print(f"Best validation loss: {best_val_loss:.4f} at epoch {best_epoch}")
+            print(f"Best validation property error: {best_val_prop_err:.4f} at epoch {best_epoch}")
             if model_path:
                 print(f"Best model saved at: {model_path}")

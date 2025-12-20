@@ -7,8 +7,10 @@ class HEA_VAE(nn.Module):
         input_dim: int=30, # 30 unique elements
         latent_dim: int=4, #[2, 4, 8]
         hidden_dim: int=128,
+        slope: float=0.2, # works better for VAEs
     ):
         super().__init__()
+        self.slope = slope
         self.enc1 = nn.Linear(input_dim, hidden_dim)
         self.enc2 = nn.Linear(hidden_dim, hidden_dim)
         self.fc_mu = nn.Linear(hidden_dim, latent_dim)
@@ -18,12 +20,14 @@ class HEA_VAE(nn.Module):
         self.dec_out = nn.Linear(hidden_dim, input_dim)
 
         self.regressor = [
-            nn.Linear(latent_dim, 64),  # Widen to 64
-            nn.LeakyReLU(),
-            nn.Linear(64, 64),          # Add depth (extra layer)
-            nn.LeakyReLU(),
-            nn.Linear(64, 1)
-        ]
+            nn.Linear(latent_dim, 128),
+            nn.LeakyReLU(self.slope),
+            nn.Linear(128, 64),
+            nn.LeakyReLU(self.slope),
+            nn.Linear(64, 32),
+            nn.LeakyReLU(self.slope),
+            nn.Linear(32, 1)
+        ] # deeper and wider property regressor
 
     def encode(self, x):
         h = nn.leaky_relu(self.enc1(x))

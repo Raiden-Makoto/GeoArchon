@@ -23,17 +23,17 @@ def main():
     parser.add_argument('--beta', type=float, default=1.0,
                         help='Weight for KL divergence loss (default: 1.0)')
     parser.add_argument('--lr', type=float, default=1e-3,
-                        help='Learning rate (default: 1e-)')
+                        help='Learning rate (default: 1e-3)')
     parser.add_argument('--csv-path', type=str, default='data/MPEA_cleaned.csv',
                         help='Path to CSV data file (default: data/MPEA_cleaned.csv)')
     parser.add_argument('--val-split', type=float, default=0.2,
                         help='Fraction of data for validation (default: 0.2, set to 0 to disable)')
-    parser.add_argument('--early-stopping-patience', type=int, default=5,
-                        help='Number of epochs to wait before early stopping (default: 5)')
+    parser.add_argument('--early-stopping-patience', type=int, default=10,
+                        help='Number of epochs to wait before early stopping (default: 10)')
     parser.add_argument('--early-stopping-min-delta', type=float, default=0.0,
                         help='Minimum change to qualify as improvement (default: 0.0)')
-    parser.add_argument('--kl-annealing-epochs', type=int, default=10,
-                        help='Number of epochs to anneal KL weight from start to target (0 = no annealing, default: 10)')
+    parser.add_argument('--kl-annealing-epochs', type=int, default=50,
+                        help='Number of epochs to anneal KL weight from start to target (0 = no annealing, default: 50)')
     parser.add_argument('--kl-annealing-start', type=float, default=0.0,
                         help='Starting value for beta (KL weight) during annealing (default: 0.0)')
     
