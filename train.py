@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Training script for HEA VAE model.
-Usage: python train.py [--epochs EPOCHS] [--alpha ALPHA] [--lr LR] [--log] [--no-early-stopping]
+Usage: python train.py [--epochs EPOCHS] [--alpha ALPHA] [--lr LR] [--log] [--early-stopping]
 """
 
 import argparse
@@ -22,23 +22,23 @@ def main():
                         help='Learning rate (default: 1e-3)')
     parser.add_argument('--log', action='store_true', default=False,
                         help='Enable logging to file (default: False, logging disabled)')
-    parser.add_argument('--no-early-stopping', action='store_true', default=False,
-                        help='Disable early stopping (default: False, early stopping enabled)')
+    parser.add_argument('--early-stopping', action='store_true', default=False,
+                        help='Enable early stopping (default: False, early stopping disabled)')
     
     args = parser.parse_args()
     
     # Fixed/default values for other parameters
     batch_size = 100
-    beta = 0.01  # Final beta value after annealing (increased from 0.005 for better regularization)
+    beta = 1.0  # Final beta value after annealing
     csv_path = 'data/MPEA_cleaned.csv'
     val_split = 0.2
-    # Set early stopping patience to a very large number if disabled
-    early_stopping_patience = float('inf') if args.no_early_stopping else 10
+    # Early stopping is DISABLED by default - only enable if --early-stopping flag is set
+    early_stopping_patience = 10 if args.early_stopping else float('inf')
     early_stopping_min_delta = 0.0
     # Revised beta annealing schedule:
     # - Cosine schedule (smooth S-curve) instead of linear
     # - 40 epochs (reduced from 50 for faster convergence)
-    # - Starts at 0.0, reaches 0.01 (increased from 0.005 for better latent space regularization)
+    # - Starts at 0.0, reaches 1.0 (standard VAE beta value)
     kl_annealing_epochs = 40
     kl_annealing_start = 0.0  # Beta starts at 0 and increases to target via cosine schedule
     
@@ -59,10 +59,10 @@ def main():
     print(f"Epochs: {args.epochs}")
     print(f"Alpha (property loss weight): {args.alpha}")
     print(f"Learning Rate: {args.lr}")
-    if args.no_early_stopping:
-        print("Early Stopping: Disabled")
-    else:
+    if args.early_stopping:
         print(f"Early Stopping: Enabled (patience: {early_stopping_patience})")
+    else:
+        print("Early Stopping: Disabled (default)")
     if log_file:
         print(f"Log File: {log_file}")
     else:
@@ -85,11 +85,11 @@ def main():
             f.write(f"Data Path: {csv_path}\n")
             f.write(f"Validation Split: {val_split}\n")
             if val_split > 0:
-                if args.no_early_stopping:
-                    f.write(f"Early Stopping: Disabled\n")
-                else:
-                    f.write(f"Early Stopping Patience: {early_stopping_patience}\n")
+                if args.early_stopping:
+                    f.write(f"Early Stopping: Enabled (patience: {early_stopping_patience})\n")
                     f.write(f"Early Stopping Min Delta: {early_stopping_min_delta}\n")
+                else:
+                    f.write(f"Early Stopping: Disabled (default)\n")
             if kl_annealing_epochs > 0:
                 f.write(f"KL Annealing: {kl_annealing_start:.4f} -> {beta:.4f} over {kl_annealing_epochs} epochs\n")
             f.write("=" * 60 + "\n\n")

@@ -11,7 +11,7 @@ from utils.loss_funcs import property_guided_loss
 from mlx.optimizers import AdamW
 
 class Trainer():
-    def __init__(self, model=None, opt=None, alpha: float=25.0, beta: float=0.005):
+    def __init__(self, model=None, opt=None, alpha: float=25.0, beta: float=1.0):
         self.model = HEA_VAE() if model is None else model
         self.opt = AdamW(learning_rate=1e-4) if opt is None else opt
         self.alpha = alpha
