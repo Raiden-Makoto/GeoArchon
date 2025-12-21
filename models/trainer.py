@@ -11,7 +11,7 @@ from utils.loss_funcs import property_guided_loss
 from mlx.optimizers import AdamW
 
 class Trainer():
-    def __init__(self, model=None, opt=None, alpha: float=4.0, beta: float=1.0):
+    def __init__(self, model=None, opt=None, alpha: float=25.0, beta: float=1.0):
         self.model = HEA_VAE() if model is None else model
         self.opt = AdamW(learning_rate=1e-4) if opt is None else opt
         self.alpha = alpha
@@ -44,7 +44,7 @@ class Trainer():
 
     def train(self, epochs: int=1, csv_path='data/MPEA_cleaned.csv', batch_size=64, 
               log_file=None, val_split=0.2, early_stopping_patience=10, early_stopping_min_delta=0.0,
-              save_dir='models', kl_annealing_epochs=0, kl_annealing_start=0.0):
+              save_dir='models', kl_annealing_epochs=0, kl_annealing_start=0.0, model_name=None):
         """
         Train the HEA VAE model using MLX.
         
@@ -83,7 +83,7 @@ class Trainer():
         
         # Learning rate scheduling: decrease LR during last 20% of annealing epochs
         initial_lr = self.opt.learning_rate
-        final_lr = initial_lr * 0.1  # 1e-3 -> 1e-4
+        final_lr = initial_lr * 0.01  # 1e-3 -> 1e-5 (reduced for stability)
         lr_decay_start_epoch = int(kl_annealing_epochs * 0.8) if use_kl_annealing else epochs + 1
         lr_decay_epochs = kl_annealing_epochs - lr_decay_start_epoch if use_kl_annealing else 0
         
@@ -110,8 +110,11 @@ class Trainer():
         # Create models directory if it doesn't exist
         if save_dir:
             os.makedirs(save_dir, exist_ok=True)
-            # Use fixed filename for easy loading
-            model_path = os.path.join(save_dir, "hea_vae_best.npz")
+            # Use custom model name if provided, otherwise use default
+            if model_name:
+                model_path = os.path.join(save_dir, f"{model_name}.npz")
+            else:
+                model_path = os.path.join(save_dir, "hea_vae_best.npz")
         else:
             model_path = None
 
@@ -180,6 +183,9 @@ class Trainer():
             for x_batch, y_batch in pbar:
                 # Forward pass and compute gradients with current beta
                 loss, grads = loss_and_grad_fn(self.model, x_batch, y_batch)
+                
+                # Gradient clipping to stabilize training and reduce loss fluctuations
+                grads = utils.tree_map(lambda g: mx.clip(g, -1.0, 1.0), grads)
                 
                 # Update model parameters (MLX optimizer updates model in place)
                 self.opt.update(self.model, grads)
@@ -267,15 +273,16 @@ class Trainer():
                 weighted_prop = avg_prop * self.alpha
                 weighted_kld = avg_kld * current_beta
                 summary = f"Epoch {epoch}/{epochs} Summary: Train Loss={avg_loss:.4f} | Val Loss={val_loss:.4f} | Chem={avg_chem:.4f} | Prop={avg_prop:.4f} | KLD={avg_kld:.4f} | Beta={current_beta:.4f}"
-                if not is_annealing and patience_counter > 0:
+                if not is_annealing and patience_counter > 0 and early_stopping_patience != float('inf'):
                     summary += f" | Patience: {patience_counter}/{early_stopping_patience}"
                 if is_annealing:
                     summary += " | (Annealing - early stopping disabled)"
+                elif early_stopping_patience == float('inf'):
+                    summary += " | (Early stopping disabled)"
                 summary += "\n"
                 
-                #beta_info = f" (beta={current_beta:.4f})" if use_kl_annealing else ""
-                #annealing_info = " [Annealing]" if is_annealing else ""
-                #print(f"Epoch {epoch}/{epochs}: Train Loss={avg_loss:.4f}, Val Loss={val_loss:.4f}, Val Prop Err={val_prop_err:.4f}, Best Prop Err={best_val_prop_err:.4f} (epoch {best_epoch}){beta_info}{annealing_info}")
+                # Print epoch summary to console (matches log file format)
+                print(summary.strip())  # Use the same summary string that's written to log file
                 
                 if log_file:
                     with open(log_file, 'a') as f:

@@ -5,8 +5,9 @@ class HEA_VAE(nn.Module):
     def __init__(
         self,
         input_dim: int=30, # 30 unique elements
-        latent_dim: int=4, #[2, 4, 8]
-        hidden_dim: int=128,
+        latent_dim: int=4, # Tightened latent space
+        hidden_dim: int=512, # Larger hidden dimension for more capacity # or 128
+        dropout_rate: float=0.1,
         slope: float=0.2, # works better for VAEs
     ):
         super().__init__()
@@ -18,16 +19,19 @@ class HEA_VAE(nn.Module):
         self.dec1 = nn.Linear(latent_dim, hidden_dim)
         self.dec2 = nn.Linear(hidden_dim, hidden_dim)
         self.dec_out = nn.Linear(hidden_dim, input_dim)
+        self.dropout = nn.Dropout(dropout_rate)
 
         self.regressor = [
-            nn.Linear(latent_dim, 128),
+            nn.Linear(latent_dim, hidden_dim), # 4 -> 512
             nn.LeakyReLU(self.slope),
-            nn.Linear(128, 64),
+            self.dropout,
+            nn.Linear(hidden_dim, hidden_dim // 2), # 512 -> 256
             nn.LeakyReLU(self.slope),
-            nn.Linear(64, 32),
+            self.dropout,
+            nn.Linear(hidden_dim // 2, 64), # 256 -> 64
             nn.LeakyReLU(self.slope),
-            nn.Linear(32, 1)
-        ] # deeper and wider property regressor
+            nn.Linear(64, 1)
+        ]
 
     def encode(self, x):
         h = nn.leaky_relu(self.enc1(x))
@@ -37,6 +41,7 @@ class HEA_VAE(nn.Module):
         return mu, logvar
 
     def reparameterize(self, mu, logvar):
+        logvar = mx.clip(logvar, -10, 10)
         std = mx.exp(0.5 * logvar)
         eps = mx.random.normal(shape=mu.shape)
         return mu + eps * std
