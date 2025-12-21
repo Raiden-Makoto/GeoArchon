@@ -59,7 +59,7 @@ def run_train(epochs, alpha, lr, log, early_stopping):
         return False
     
     cmd = [
-        sys.executable, "train.py",
+        sys.executable, "utils/train.py",
         "--epochs", str(epochs),
         "--alpha", str(alpha),
         "--lr", str(lr)
