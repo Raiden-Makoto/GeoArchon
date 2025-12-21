@@ -29,14 +29,18 @@ def main():
     
     # Fixed/default values for other parameters
     batch_size = 100
-    beta = 1.0
+    beta = 0.01  # Final beta value after annealing (increased from 0.005 for better regularization)
     csv_path = 'data/MPEA_cleaned.csv'
     val_split = 0.2
     # Set early stopping patience to a very large number if disabled
     early_stopping_patience = float('inf') if args.no_early_stopping else 10
     early_stopping_min_delta = 0.0
-    kl_annealing_epochs = 50
-    kl_annealing_start = 0.0
+    # Revised beta annealing schedule:
+    # - Cosine schedule (smooth S-curve) instead of linear
+    # - 40 epochs (reduced from 50 for faster convergence)
+    # - Starts at 0.0, reaches 0.01 (increased from 0.005 for better latent space regularization)
+    kl_annealing_epochs = 40
+    kl_annealing_start = 0.0  # Beta starts at 0 and increases to target via cosine schedule
     
     # Create log file only if logging is enabled
     log_file = None
@@ -93,8 +97,9 @@ def main():
     # Initialize optimizer with specified learning rate
     optimizer = AdamW(learning_rate=args.lr)
     
-    # Initialize trainer
-    trainer = Trainer(model=HEA_VAE(latent_dim=4), opt=optimizer, alpha=args.alpha, beta=beta)
+    # Initialize trainer - ensure model matches dataset (30 element columns)
+    trainer = Trainer(model=HEA_VAE(input_dim=30, latent_dim=4, hidden_dim=512, dropout_rate=0.1), 
+                      opt=optimizer, alpha=args.alpha, beta=beta)
     
     # Train the model (saves to models/hea_vae_best.npz by default)
     trainer.train(

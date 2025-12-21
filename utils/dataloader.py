@@ -3,9 +3,16 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 
+# We'll identify element columns dynamically from the dataset
+# Elements are columns that are NOT properties, metadata, or physics descriptors
+
 def load_hea_data(csv_path='data/MPEA_cleaned.csv', batch_size=64, shuffle=True, val_split=0.2):
     """
     Load HEA (High Entropy Alloy) data using MLX.
+    
+    CRITICAL: Proper normalization is essential:
+    - Element fractions (X): NOT normalized (preserve compositional constraint: sum to 1.0)
+    - Target property (y): Z-score normalized (mean=0, std=1) for stable training
     
     Args:
         csv_path: Path to the CSV file (default: 'data/MPEA_cleaned.csv')
@@ -18,7 +25,7 @@ def load_hea_data(csv_path='data/MPEA_cleaned.csv', batch_size=64, shuffle=True,
         val_generator: Generator function that yields validation batches (or None if val_split=0)
         y_mean: Mean of the target property (for denormalization)
         y_std: Standard deviation of the target property (for denormalization)
-        input_dim: Number of input features (30)
+        input_dim: Number of input features (number of element columns found)
         n_train_samples: Number of training samples
         n_val_samples: Number of validation samples
     """
@@ -31,32 +38,57 @@ def load_hea_data(csv_path='data/MPEA_cleaned.csv', batch_size=64, shuffle=True,
     
     # 2. Filter: Keep only rows with valid Yield Strength
     target_col = 'PROPERTY: YS (MPa)'
+    if target_col not in df.columns:
+        raise ValueError(f"Target column '{target_col}' not found in dataset")
+    
     df_clean = df.dropna(subset=[target_col]).copy()
     
-    # 3. Extract Features (X)
-    # Skip the first column (index) and get the next 30 columns (element fractions)
-    # Columns 1-30 are the element fractions (Al, Co, Fe, Ni, Si, ...)
-    # These are compositional data: values in [0,1] and sum to 1 per sample
-    # We preserve this constraint by NOT normalizing X
-    X = df_clean.iloc[:, 1:31].values.astype(np.float32)  # Skip index column (0), get columns 1-30
+    # 3. Extract Features (X) - Element fractions by column name
+    # Identify element columns: all columns that are NOT properties, metadata, or physics descriptors
+    all_cols = df_clean.columns.tolist()
+    excluded_prefixes = ['PROPERTY', 'PHYS:', 'IDENTIFIER', 'REFERENCE']
+    element_cols = [
+        col for col in all_cols 
+        if not any(col.startswith(prefix) for prefix in excluded_prefixes)
+    ]
+    
+    if len(element_cols) == 0:
+        raise ValueError("No element columns found in dataset. Expected columns like Al, Co, Fe, etc.")
+    
+    # Extract element fractions (preserve compositional constraint)
+    X = df_clean[element_cols].values.astype(np.float32)
     
     # Verify compositional constraint (should sum to ~1.0 per sample)
     X_sums = X.sum(axis=1)
-    if not np.allclose(X_sums, 1.0, atol=1e-5):
+    if not np.allclose(X_sums, 1.0, atol=1e-4):
         print(f"Warning: Some samples don't sum to 1.0 (min={X_sums.min():.6f}, max={X_sums.max():.6f})")
+        print(f"  Mean sum: {X_sums.mean():.6f}, Std: {X_sums.std():.6f}")
+        # Normalize to ensure sum = 1.0 (CRITICAL for compositional constraint)
+        X = X / X_sums[:, np.newaxis]
+        print("  Normalized element fractions to sum to 1.0")
     
-    # Keep X as-is to preserve compositional constraint
-    # Element fractions are already in [0,1] range, suitable for neural networks
+    # CRITICAL: Do NOT normalize X further - preserve compositional constraint
+    # Element fractions are already in [0,1] range and sum to 1.0
     
-    # 4. Extract Targets (y) and Normalize
+    # 4. Extract Targets (y) and Normalize - CRITICAL STEP
     y = df_clean[target_col].values.astype(np.float32).reshape(-1, 1)
     
-    # Save statistics for later un-normalization
+    # Save statistics for later denormalization
     y_mean = float(y.mean())
     y_std = float(y.std())
     
-    # Standardize (Z-score normalization)
+    if y_std == 0:
+        raise ValueError("Target property has zero standard deviation - cannot normalize")
+    
+    # CRITICAL: Z-score normalization (mean=0, std=1)
+    # This is essential for stable training and proper loss scaling
     y_norm = (y - y_mean) / y_std
+    
+    # Verify normalization
+    y_norm_mean = float(y_norm.mean())
+    y_norm_std = float(y_norm.std())
+    if not np.allclose([y_norm_mean, y_norm_std], [0.0, 1.0], atol=1e-5):
+        print(f"Warning: Normalization may be incorrect (mean={y_norm_mean:.6f}, std={y_norm_std:.6f})")
     
     # 5. Convert to MLX arrays
     # X is kept as raw element fractions (preserves compositional constraint: sum to 1)
@@ -81,8 +113,9 @@ def load_hea_data(csv_path='data/MPEA_cleaned.csv', batch_size=64, shuffle=True,
         print(f"Loaded {n_samples} valid alloys.")
         print(f"  Training samples: {n_train}")
         print(f"  Validation samples: {n_val}")
-        print(f"Input Features: Element fractions (range: [{X.min():.4f}, {X.max():.4f}], sum to 1.0)")
-        print(f"Target Property Normalized (Mean: {y_mean:.2f}, Std: {y_std:.2f})")
+        print(f"Input Features: {len(element_cols)} element fractions (range: [{X.min():.4f}, {X.max():.4f}], sum to 1.0)")
+        print(f"Target Property: Normalized (original mean: {y_mean:.2f}, std: {y_std:.2f})")
+        print(f"  Normalized mean: {y_norm_mean:.6f}, std: {y_norm_std:.6f}")
         
         def train_generator():
             """Generator function that yields training batches."""
@@ -111,8 +144,9 @@ def load_hea_data(csv_path='data/MPEA_cleaned.csv', batch_size=64, shuffle=True,
     else:
         # No validation split - return all data as training
         print(f"Loaded {n_samples} valid alloys.")
-        print(f"Input Features: Element fractions (range: [{X.min():.4f}, {X.max():.4f}], sum to 1.0)")
-        print(f"Target Property Normalized (Mean: {y_mean:.2f}, Std: {y_std:.2f})")
+        print(f"Input Features: {len(element_cols)} element fractions (range: [{X.min():.4f}, {X.max():.4f}], sum to 1.0)")
+        print(f"Target Property: Normalized (original mean: {y_mean:.2f}, std: {y_std:.2f})")
+        print(f"  Normalized mean: {y_norm_mean:.6f}, std: {y_norm_std:.6f}")
         
         indices = np.arange(n_samples)
         if shuffle:

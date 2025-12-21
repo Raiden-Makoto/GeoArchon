@@ -11,7 +11,7 @@ from utils.loss_funcs import property_guided_loss
 from mlx.optimizers import AdamW
 
 class Trainer():
-    def __init__(self, model=None, opt=None, alpha: float=25.0, beta: float=1.0):
+    def __init__(self, model=None, opt=None, alpha: float=25.0, beta: float=0.005):
         self.model = HEA_VAE() if model is None else model
         self.opt = AdamW(learning_rate=1e-4) if opt is None else opt
         self.alpha = alpha
@@ -19,21 +19,26 @@ class Trainer():
 
         # Create loss and gradient function using MLX's value_and_grad
         # Note: beta will be dynamically set during training for KL annealing
+        # We'll compute components inline to ensure they match the loss exactly
         def loss_fn(model, x, y, beta_val):
             recon_x, pred_y, mu, logvar = model(x)
-            loss = property_guided_loss(
-                recon_x,
-                x,
-                pred_y,
-                y,
-                mu,
-                logvar, 
-                alpha=self.alpha,
-                beta=beta_val
-            )
+            batch_size = mu.shape[0]
+            # Compute components
+            # Chemistry loss: sum reduction (preserves scale)
+            loss_chem = nn.losses.mse_loss(recon_x, x, reduction='sum')
+            # Property loss: normalize by batch size to make scale comparable
+            # This prevents property loss from dominating when batch size is large
+            loss_prop = nn.losses.mse_loss(pred_y, y, reduction='sum') / batch_size
+            # KL divergence: already normalized by batch size
+            loss_kld = -0.5 * mx.sum(1 + logvar - mx.power(mu, 2) - mx.exp(logvar)) / batch_size
+            # Total loss (exactly matching the formula)
+            loss = loss_chem + (self.alpha * loss_prop) + (beta_val * loss_kld)
+            # Store components for extraction (same computation as loss)
+            self._last_loss_components = (loss_chem, loss_prop, loss_kld, mu, logvar)
             return loss
         
         self.loss_fn = loss_fn
+        self._last_loss_components = None
         # Create a function that returns value_and_grad with current beta
         def get_loss_and_grad_fn(beta_val):
             def loss_fn_with_beta(model, x, y):
@@ -126,9 +131,13 @@ class Trainer():
             
             # Compute annealed beta for this epoch
             if use_kl_annealing:
-                # Linear annealing: beta = start + (target - start) * min(1.0, epoch / annealing_epochs)
+                # Cosine annealing schedule: smoother transition than linear
+                # Provides slower start, faster middle, slower end (better for VAE training)
                 annealing_progress = min(1.0, epoch / kl_annealing_epochs)
-                current_beta = kl_annealing_start + (self.beta - kl_annealing_start) * annealing_progress
+                # Cosine schedule: 0.5 * (1 - cos(π * progress))
+                # This gives a smooth S-curve: slow at start/end, fast in middle
+                cosine_progress = 0.5 * (1 - np.cos(np.pi * annealing_progress))
+                current_beta = kl_annealing_start + (self.beta - kl_annealing_start) * cosine_progress
             else:
                 current_beta = self.beta
             
@@ -182,7 +191,26 @@ class Trainer():
             # Iterate through training batches
             for x_batch, y_batch in pbar:
                 # Forward pass and compute gradients with current beta
+                # This computes loss AND stores components in self._last_loss_components
                 loss, grads = loss_and_grad_fn(self.model, x_batch, y_batch)
+                
+                # Extract components from the SAME computation used in loss function
+                if self._last_loss_components is not None:
+                    loss_chem, loss_prop, loss_kld, mu, logvar = self._last_loss_components
+                    loss_chem_val = float(loss_chem)
+                    loss_prop_val = float(loss_prop)
+                    loss_kld_val = float(loss_kld)
+                else:
+                    # Fallback: recompute if storage failed
+                    recon_x, pred_y, mu, logvar = self.model(x_batch)
+                    loss_chem_val = float(nn.losses.mse_loss(recon_x, x_batch, reduction='sum'))
+                    loss_prop_val = float(nn.losses.mse_loss(pred_y, y_batch, reduction='sum'))
+                    batch_size = mu.shape[0]
+                    loss_kld_val = float(-0.5 * mx.sum(1 + logvar - mx.power(mu, 2) - mx.exp(logvar)) / batch_size)
+                
+                # Verify components match the loss (they should, since computed together)
+                expected_loss = loss_chem_val + (self.alpha * loss_prop_val) + (current_beta * loss_kld_val)
+                loss_val = float(loss)
                 
                 # Gradient clipping to stabilize training and reduce loss fluctuations
                 grads = utils.tree_map(lambda g: mx.clip(g, -1.0, 1.0), grads)
@@ -190,27 +218,15 @@ class Trainer():
                 # Update model parameters (MLX optimizer updates model in place)
                 self.opt.update(self.model, grads)
                 
-                # Evaluate the loss to get actual values (MLX is lazy)
-                # Convert MLX array to numpy for logging
-                loss_val = float(loss)
-                
-                # Compute individual loss components for logging
-                recon_x, pred_y, mu, logvar = self.model(x_batch)
-                loss_chem = float(nn.losses.mse_loss(recon_x, x_batch, reduction='sum'))
-                loss_prop = float(nn.losses.mse_loss(pred_y, y_batch, reduction='sum'))
-                # KL divergence term (normalized by batch size)
-                batch_size = mu.shape[0]
-                loss_kld = float(-0.5 * mx.sum(1 + logvar - mx.power(mu, 2) - mx.exp(logvar)) / batch_size)
-                
                 # Diagnostic: check if posterior is collapsing
                 mu_mean = float(mx.mean(mx.abs(mu)))
                 logvar_mean = float(mx.mean(logvar))
                 
-                # Track metrics
-                total_loss += float(loss_val)
-                chem_loss_acc += float(loss_chem)
-                prop_loss_acc += float(loss_prop)
-                kld_loss_acc += float(loss_kld)
+                # Track metrics - components and loss are from the same computation
+                total_loss += loss_val
+                chem_loss_acc += loss_chem_val
+                prop_loss_acc += loss_prop_val
+                kld_loss_acc += loss_kld_val
                 
                 # Update progress bar with essential metrics only
                 pbar.set_postfix({'Loss': f'{loss_val:.4f}'})

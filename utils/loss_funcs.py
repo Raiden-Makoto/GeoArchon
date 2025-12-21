@@ -23,12 +23,13 @@ def property_guided_loss(recon_x, x, pred_y, y, mu, logvar, alpha=10.0, beta=1.0
     
     # 2. Physics Loss (Property Regression)
     # Measures how accurate the strength prediction is.
-    loss_prop = nn.losses.mse_loss(pred_y, y, reduction='sum')
+    # Normalize by batch size to make scale comparable to other loss terms
+    batch_size = mu.shape[0]
+    loss_prop = nn.losses.mse_loss(pred_y, y, reduction='sum') / batch_size
     
     # 3. Regularization (KL Divergence)
     # Forces the latent space to be continuous and smooth.
     # Normalize by batch size to make it comparable across different batch sizes
-    batch_size = mu.shape[0]
     loss_kld = -0.5 * mx.sum(1 + logvar - mx.power(mu, 2) - mx.exp(logvar)) / batch_size
     
     # TOTAL LOSS
