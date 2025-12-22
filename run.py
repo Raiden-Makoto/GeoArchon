@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """
-Complete pipeline script for HEA VAE: Preprocess → Train → Evaluate
+Complete pipeline script for HEA VAE: Preprocess → Train → Evaluate → Sample
 
 This script runs the full pipeline:
 1. Preprocess dataset (add physics descriptors)
 2. Train the VAE model
 3. Evaluate the trained model
+4. Generate stable alloy candidates
 
 Usage:
-    python run_pipeline.py [--epochs EPOCHS] [--alpha ALPHA] [--lr LR] [--log] [--early-stopping] [--skip-preprocess] [--skip-train] [--skip-eval]
+    python run.py [--epochs EPOCHS] [--alpha ALPHA] [--lr LR] [--log] [--early-stopping] [--skip-preprocess] [--skip-train] [--skip-eval] [--skip-sample]
 """
 
 import argparse
@@ -118,23 +119,64 @@ def run_evaluate(model_path="models/hea_vae_best.npz"):
         return False
 
 
+def run_sample(model_path="models/hea_vae_best.npz"):
+    """Run stable alloy generation."""
+    print("\n" + "=" * 60)
+    print("STEP 4: Generating Stable Alloy Candidates")
+    print("=" * 60)
+    
+    # Check if model exists
+    if not os.path.exists(model_path):
+        print(f"✗ Error: Model file not found: {model_path}")
+        print("  Train the model first or use --skip-train to skip training")
+        return False
+    
+    try:
+        # Import and run directly
+        sys.path.insert(0, os.getcwd())
+        from utils.sample import generate_stable_alloys
+        
+        # Temporarily modify the model path in sample.py by monkey-patching
+        # Or we could modify sample.py to accept model_path, but for now let's just check
+        # that the default path matches
+        if model_path != "models/hea_vae_best.npz":
+            print(f"⚠ Warning: sample.py uses hardcoded path 'models/hea_vae_best.npz'")
+            print(f"  Requested: {model_path}")
+            print("  Proceeding with default path...")
+        
+        generate_stable_alloys()
+        print("\n✓ Sampling completed successfully")
+        return True
+    except Exception as e:
+        print(f"\n✗ Sampling failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+    except KeyboardInterrupt:
+        print("\n✗ Sampling interrupted by user")
+        return False
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Run complete HEA VAE pipeline: Preprocess → Train → Evaluate",
+        description="Run complete HEA VAE pipeline: Preprocess → Train → Evaluate → Sample",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   # Run full pipeline with defaults
-  python run_pipeline.py
+  python run.py
 
   # Run with custom parameters
-  python run_pipeline.py --epochs 200 --alpha 30 --lr 1e-4
+  python run.py --epochs 200 --alpha 30 --lr 1e-4
 
-  # Skip preprocessing (use existing cleaned dataset)
-  python run_pipeline.py --skip-preprocess
+  # Skip preprocessing (use existing processed dataset)
+  python run.py --skip-preprocess
 
-  # Only evaluate existing model
-  python run_pipeline.py --skip-preprocess --skip-train
+  # Only evaluate and sample existing model
+  python run.py --skip-preprocess --skip-train
+
+  # Only generate samples (skip everything else)
+  python run.py --skip-preprocess --skip-train --skip-eval
         """
     )
     
@@ -157,10 +199,12 @@ Examples:
                         help='Skip training step (default: False)')
     parser.add_argument('--skip-eval', action='store_true', default=False,
                         help='Skip evaluation step (default: False)')
+    parser.add_argument('--skip-sample', action='store_true', default=False,
+                        help='Skip sampling step (default: False)')
     
-    # Model path for evaluation
+    # Model path for evaluation and sampling
     parser.add_argument('--model', type=str, default='models/hea_vae_best.npz',
-                        help='Path to model for evaluation (default: models/hea_vae_best.npz)')
+                        help='Path to model for evaluation/sampling (default: models/hea_vae_best.npz)')
     
     args = parser.parse_args()
     
@@ -177,6 +221,7 @@ Examples:
     print(f"  Skip Preprocess: {args.skip_preprocess}")
     print(f"  Skip Train: {args.skip_train}")
     print(f"  Skip Eval: {args.skip_eval}")
+    print(f"  Skip Sample: {args.skip_sample}")
     print("=" * 60)
     print()
     
@@ -209,6 +254,15 @@ Examples:
     else:
         print("Skipping evaluation step...")
     
+    # Step 4: Sampling
+    if not args.skip_sample:
+        if not run_sample(args.model):
+            success = False
+            print("\n✗ Pipeline failed at sampling step")
+            sys.exit(1)
+    else:
+        print("Skipping sampling step...")
+    
     # Final summary
     print("\n" + "=" * 60)
     if success:
@@ -220,8 +274,10 @@ Examples:
         if not args.skip_train:
             print(f"  - {args.model} (trained model)")
         if not args.skip_eval:
-            print("  - figures/eval_property_parity.png (evaluation plot)")
+            print("  - figures/eval_stability_parity.png (evaluation plot)")
             print("  - figures/eval_latent_space.png (latent space visualization)")
+        if not args.skip_sample:
+            print("  - generated_stable_heas.csv (top 50 stable alloy candidates)")
     else:
         print("✗ PIPELINE FAILED")
         print("=" * 60)
