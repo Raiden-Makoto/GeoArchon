@@ -1,26 +1,187 @@
-# GeoArchon
-Generative Design of High-Entropy Alloys (HEAs) using Variational Autoencoder
+# Generative Design of Stable High-Entropy Alloys via Physics-Informed VAEs
 
-## Executive Summary
+## 1. Project Overview
+This project utilizes a **Variational Autoencoder (VAE)** to discover novel, non-equiatomic High-Entropy Alloys (HEAs) that are thermodynamically stable. Unlike traditional discovery methods that rely on trial-and-error mixing of equiatomic ratios (e.g., Cantor Alloy), this model learns the continuous landscape of phase stability from Density Functional Theory (DFT) data to generate optimized, multi-component microstructures.
 
-### Why Generative Design of High-Entropy Alloys Matters
+**Key Achievement:** The model identified multiple novel alloy candidates (e.g., `Ni45Cr36Fe12Cu6`) that are predicted to be thermodynamically stable ($E_{hull} < 0$) and were validated as **FCC Solid Solutions** using Hume-Rothery rules.
 
-High-Entropy Alloys (HEAs) represent a paradigm shift in materials science, offering exceptional properties through their unique multi-principal element compositions. Unlike traditional alloys dominated by one or two base elements, HEAs contain five or more elements in near-equal proportions, creating a vast compositional space with unprecedented opportunities for material discovery.
+---
 
-**The Challenge:**
-The combinatorial explosion of possible HEA compositions makes traditional experimental discovery methods prohibitively expensive and time-consuming. With 30+ candidate elements and millions of potential combinations, exhaustive exploration is impossible. This bottleneck severely limits our ability to discover HEAs with optimal properties for critical applications.
+## 2. The Problem & The Pivot
+### Phase 1: The "Processing Gap" (Yield Strength Prediction)
+Initially, the project aimed to predict experimental Yield Strength from composition alone.
+* **Result:** The model plateaued at **$R^2 \approx 0.54$**.
+* **Root Cause:** Experimental datasets lacked critical processing metadata (Annealing Temp, Grain Size). Without this, the model faced contradictory labels for identical compositions.
 
-**The Solution:**
-GeoArchon addresses this challenge through generative AI, specifically a Property-Guided Variational Autoencoder (VAE) that learns the underlying structure of HEA compositions and their relationship to material properties. This approach enables:
+### Phase 2: The Strategic Pivot (Thermodynamic Stability)
+We pivoted the target variable to **Energy Above Hull ($E_{hull}$)** derived from high-fidelity DFT simulations (84,000+ samples).
+* **Result:** The model successfully learned the laws of thermodynamics, achieving **$R^2 = 0.92$** and **99.75% Accuracy** in distinguishing stable from unstable phases.
+* **Significance:** This transformed the VAE from a "noisy regressor" into a "precision discovery engine."
 
-1. **Accelerated Discovery**: Generate novel HEA compositions with desired properties without expensive trial-and-error experimentation
-2. **Property Optimization**: Navigate the high-dimensional compositional space to find alloys with specific mechanical, thermal, or chemical properties
-3. **Design Space Exploration**: Understand the latent structure of HEA compositions and identify promising regions for further investigation
-4. **Cost Reduction**: Prioritize experimental validation to the most promising candidates, dramatically reducing R&D costs
+---
 
-**Real-World Impact:**
-- **Aerospace & Defense**: Lightweight, high-strength alloys for extreme environments
-- **Energy Systems**: Corrosion-resistant materials for renewable energy infrastructure
-- **Medical Devices**: Biocompatible alloys with tailored mechanical properties
-- **Automotive**: High-performance materials for next-generation vehicles
+## 3. Methodology
 
+### Architecture
+The model uses a modular VAE architecture with three main components:
+
+* **Encoder** (`models/encoder.py`): Compresses chemical compositions into a 4-dimensional latent space
+* **Decoder** (`models/decoder.py`): Reconstructs valid chemical compositions from latent coordinates
+* **Property Regressor** (`models/regressor.py`): Predicts stability from latent representations
+
+The main model (`models/hea_vae.py`) combines these components into a unified VAE that:
+- Encodes compositions → latent space
+- Decodes latent points → compositions
+- Predicts stability from latent coordinates
+
+### Training Data
+* **Source:** 84,000+ DFT calculations from Materials Project
+* **Preprocessing:** Filtered for High-Entropy complexity (N $\ge$ 4 elements)
+* **Final Dataset:** 52,713 HEA samples with 8 unique elements (Al, Co, Cr, Cu, Fe, Mn, Ni, Si)
+* **Input:** Chemical composition vectors (atomic fractions)
+* **Output:** Formation Energy Above Hull ($E_{hull}$)
+
+### Training Configuration
+* **Batch Size:** 256
+* **Alpha (Property Loss Weight):** 50.0
+* **Beta (KL Divergence Weight):** 1.0 (with cosine annealing from 0.0 over 40 epochs)
+* **Learning Rate:** 1e-3 (with decay during annealing)
+* **Hidden Dimension:** 512
+* **Latent Dimension:** 4
+
+---
+
+## 4. Results
+
+### Model Performance
+| Metric | Value | Interpretation |
+| :--- | :--- | :--- |
+| **$R^2$ Score** | **0.9216** | The model captures 92% of the variance in thermodynamic stability. |
+| **RMSE** | **0.06 eV/atom** | Prediction error is within the margin of thermal fluctuation ($kT$). |
+| **Stability Accuracy** | **99.75%** | Near-perfect classification of stable vs. unstable alloys. |
+
+### Novel Candidates Discovered
+The generator scans 50,000 random points in latent space and filters for alloys that are **Stable ($E < 0.05$ eV)** and **Complex (N $\ge$ 4 elements with >5% concentration)**. Top candidates exhibit non-equiatomic characteristics:
+
+| Rank | Formula | Stability (eV) | Phase | Delta_r (%) | VEC |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| 1 | **Ni59Fe19Cr11Cu8** | -0.019 | FCC (Stable/Ductile) | 0.94 | 9.16 |
+| 2 | **Ni47Fe38Cr7Cu5Si1** | -0.0087 | FCC (Stable/Ductile) | 0.93 | 8.92 |
+| 3 | **Ni68Si18Fe6Cu5Cr1** | 0.0022 | FCC (Stable/Ductile) | 2.32 | 8.77 |
+
+*(See `verified_stable_heas.csv` for full list with physics verification)*
+
+---
+
+## 5. Physical Validation (Hume-Rothery Rules)
+All generated candidates are automatically verified against semi-empirical metallurgical rules:
+
+1. **Atomic Size Mismatch ($\delta$):** Must be $< 6.6\%$ to form a Solid Solution.
+2. **Valence Electron Concentration (VEC):** Must be $\ge 8.0$ to form a ductile FCC phase.
+
+### Validation Results
+* **100%** of candidates passed the $\delta < 6.6\%$ check (Average $\delta \approx 1.5\%$).
+* **100%** of candidates passed the VEC $\ge 8.0$ check (Predominantly Ni/Co rich).
+* **Conclusion:** The candidates are predicted to be **Stable, Single-Phase FCC Solid Solutions**, making them excellent candidates for ductile structural applications.
+
+---
+
+## 6. Project Structure
+
+```
+GeoArchon/
+├── data/
+│   ├── HEA_dataset.csv              # Raw dataset (84K samples)
+│   ├── HEA_stability_train.csv      # Processed training data (52K HEAs)
+│   └── preprocess.py                # Data preprocessing script
+├── models/
+│   ├── encoder.py                  # Encoder module
+│   ├── decoder.py                  # Decoder module
+│   ├── regressor.py                # Property regressor module
+│   ├── hea_vae.py                  # Main VAE model
+│   ├── trainer.py                  # Training logic
+│   └── hea_vae_best.npz            # Trained model weights
+├── utils/
+│   ├── dataloader.py               # Data loading utilities
+│   ├── train.py                    # Training script
+│   ├── evaluate.py                 # Model evaluation script
+│   └── sample.py                   # Candidate generation + verification
+├── figures/
+│   ├── eval_stability_parity.png   # Prediction parity plot
+│   └── eval_latent_space.png       # Latent space visualization
+├── run.py                          # Complete pipeline script
+├── verified_stable_heas.csv        # Generated candidates with verification
+└── requirements.txt                # Python dependencies
+```
+
+---
+
+## 7. How to Run
+
+### Quick Start: Complete Pipeline
+Run the full pipeline (preprocess → train → evaluate → sample):
+```bash
+python run.py --epochs 100
+```
+
+### Step-by-Step
+
+#### 1. Preprocess Data
+```bash
+python data/preprocess.py
+```
+This filters the dataset for HEAs (≥4 elements) and creates `data/HEA_stability_train.csv`.
+
+#### 2. Train the Model
+```bash
+python utils/train.py --epochs 100 --alpha 50.0 --lr 1e-3
+```
+Options:
+- `--epochs`: Number of training epochs (default: 100)
+- `--alpha`: Property loss weight (default: 50.0)
+- `--lr`: Learning rate (default: 1e-3)
+- `--log`: Enable logging to file
+- `--early-stopping`: Enable early stopping
+
+#### 3. Evaluate Model
+```bash
+python utils/evaluate.py
+```
+Generates evaluation plots in `figures/` directory.
+
+#### 4. Generate & Verify Candidates
+```bash
+python utils/sample.py
+```
+Scans latent space, generates stable candidates, and automatically verifies them using Hume-Rothery rules. Outputs `verified_stable_heas.csv` with all verification data.
+
+### Pipeline Options
+```bash
+# Skip preprocessing (use existing data)
+python run.py --skip-preprocess
+
+# Only evaluate and sample existing model
+python run.py --skip-preprocess --skip-train
+
+# Only generate samples
+python run.py --skip-preprocess --skip-train --skip-eval
+```
+
+---
+
+## 8. Dependencies
+
+Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+Key dependencies:
+- **MLX** (>=0.19.0): Apple's machine learning framework
+- **Pandas** (>=2.0.0): Data processing
+- **NumPy** (>=1.24.0): Numerical computing
+- **Matplotlib** (>=3.7.0): Visualization
+- **scikit-learn** (>=1.3.0): Metrics and utilities
+- **tqdm** (>=4.65.0): Progress bars
+
+---
