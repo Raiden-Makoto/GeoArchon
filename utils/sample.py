@@ -12,6 +12,86 @@ sys.path.insert(0, str(project_root))
 from models.hea_vae import HEA_VAE
 from utils.dataloader import load_hea_data
 
+# ==========================================
+# PHYSICAL CONSTANTS (The "Textbook" Data)
+# ==========================================
+# Sources: Takeuchi & Inoue (2005), Guo et al (2011)
+# Format: {Element: (Atomic Radius in Angstrom, VEC)}
+element_props = {
+    # Transition Metals (3d)
+    'Ti': (1.462, 4), 'V':  (1.316, 5), 'Cr': (1.249, 6), 
+    'Mn': (1.350, 7), 'Fe': (1.241, 8), 'Co': (1.252, 9), 
+    'Ni': (1.246, 10),'Cu': (1.278, 11),
+    # Refractory (4d/5d)
+    'Zr': (1.602, 4), 'Nb': (1.429, 5), 'Mo': (1.363, 6), 
+    'Hf': (1.578, 4), 'Ta': (1.430, 5), 'W':  (1.371, 6),
+    # Others
+    'Al': (1.432, 3), 'Si': (1.176, 4), 'C':  (0.770, 4), 'B': (0.820, 3)
+}
+
+def get_phase_prediction(delta, vec):
+    """
+    Classifies alloy based on Hume-Rothery Rules for HEAs.
+    Rules from: Guo et al., J. Appl. Phys (2011).
+    """
+    phase = "Uncertain"
+    
+    # 1. Solid Solution Check (Geometric)
+    if delta <= 6.6:
+        # It's likely a simple solid solution (not brittle intermetallic)
+        
+        # 2. Phase Selection (Electronic)
+        if vec >= 8.0:
+            phase = "FCC (Stable/Ductile)"
+        elif vec <= 6.87:
+            phase = "BCC (Strong/Brittle)"
+        else:
+            phase = "FCC + BCC Mix"
+            
+    else:
+        phase = "Multi-Phase / Intermetallic (Risk of Brittleness)"
+        
+    return phase
+
+def calculate_physics(comps_dict, element_names):
+    """
+    Calculate physics-based properties for a composition.
+    
+    Args:
+        comps_dict: Dictionary {element_name: fraction (0-1)}
+        element_names: List of element names in order
+    
+    Returns:
+        dict with 'Delta_r (%)', 'VEC', 'Predicted_Phase'
+    """
+    # Calculate average properties
+    avg_r = 0.0
+    avg_vec = 0.0
+    
+    for el, frac in comps_dict.items():
+        if el in element_props:
+            r, vec = element_props[el]
+            avg_r += frac * r
+            avg_vec += frac * vec
+    
+    # Calculate lattice distortion (Delta)
+    delta_sq_sum = 0.0
+    for el, frac in comps_dict.items():
+        if el in element_props:
+            r, _ = element_props[el]
+            delta_sq_sum += frac * (1 - r/avg_r)**2
+    
+    delta = 100 * np.sqrt(delta_sq_sum)
+    
+    # Predict phase
+    prediction = get_phase_prediction(delta, avg_vec)
+    
+    return {
+        'Delta_r (%)': round(delta, 2),
+        'VEC': round(avg_vec, 2),
+        'Predicted_Phase': prediction
+    }
+
 def generate_stable_alloys():
     print("="*60)
     print("GENERATING STABLE HEA CANDIDATES (Energy Minimization)")
@@ -71,9 +151,9 @@ def generate_stable_alloys():
     compositions = np.array(vae.decode(best_z))
     energies = pred_y_ev[stable_indices]
     
-    # 5. Format & HEA Filter
+    # 5. Format & HEA Filter + Verification
     results = []
-    print("Filtering for HEA complexity (>= 4 elements)...")
+    print("Filtering for HEA complexity (>= 4 elements) and verifying...")
     
     for i in range(len(stable_indices)):
         comp = compositions[i]
@@ -84,9 +164,10 @@ def generate_stable_alloys():
         major_elements = np.sum(comp > 0.05)
         
         if major_elements >= 4:
-            # Create formula string
+            # Create formula string and composition dict
             formula_parts = []
             alloy_dict = {'Predicted_Stability_eV': round(energy, 4)}
+            comps_dict = {}  # For physics calculation
             
             # Sort elements by percentage
             sorted_idx = np.argsort(comp)[::-1]
@@ -95,28 +176,40 @@ def generate_stable_alloys():
                 if pct > 0.01: # 1% display cutoff
                     name = element_names[idx]
                     alloy_dict[name] = round(pct * 100, 1)
+                    comps_dict[name] = pct  # Store as fraction for physics
                     formula_parts.append(f"{name}{int(pct*100)}")
             
             alloy_dict['Formula'] = "".join(formula_parts)
+            
+            # Calculate physics-based verification
+            physics = calculate_physics(comps_dict, element_names)
+            alloy_dict.update(physics)
+            
             results.append(alloy_dict)
 
-    # 6. Save Results
+    # 6. Save Results with Verification
     df_results = pd.DataFrame(results)
     
     if not df_results.empty:
         # Sort by Stability (Lower is Better)
         df_results = df_results.sort_values(by='Predicted_Stability_eV', ascending=True).head(50)
         
-        # Reorder columns
-        cols = ['Formula', 'Predicted_Stability_eV'] + [c for c in df_results.columns if c not in ['Formula', 'Predicted_Stability_eV']]
+        # Reorder columns: Formula, Stability, Phase info, then element percentages
+        priority_cols = ['Formula', 'Predicted_Stability_eV', 'Predicted_Phase', 'Delta_r (%)', 'VEC']
+        other_cols = [c for c in df_results.columns if c not in priority_cols]
+        cols = priority_cols + other_cols
+        # Only include columns that exist
+        cols = [c for c in cols if c in df_results.columns]
         df_results = df_results[cols].fillna(0)
         
-        print("\nTop 10 Stable Candidates:")
-        print(df_results.head(10))
+        print("\nTop 10 Verified Stable Candidates:")
+        display_cols = ['Formula', 'Predicted_Stability_eV', 'Predicted_Phase', 'Delta_r (%)', 'VEC']
+        display_cols = [c for c in display_cols if c in df_results.columns]
+        print(df_results[display_cols].head(10))
         
-        output_filename = 'generated_stable_heas.csv'
+        output_filename = 'verified_stable_heas.csv'
         df_results.to_csv(output_filename, index=False)
-        print(f"\nSuccess! Saved top 50 candidates to '{output_filename}'")
+        print(f"\nSuccess! Saved top 50 verified candidates to '{output_filename}'")
     else:
         print("Candidates were stable, but none met the HEA criteria (>= 4 elements).")
 

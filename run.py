@@ -277,7 +277,7 @@ Examples:
             print("  - figures/eval_stability_parity.png (evaluation plot)")
             print("  - figures/eval_latent_space.png (latent space visualization)")
         if not args.skip_sample:
-            print("  - generated_stable_heas.csv (top 50 stable alloy candidates)")
+            print("  - verified_stable_heas.csv (top 50 verified stable alloy candidates)")
     else:
         print("✗ PIPELINE FAILED")
         print("=" * 60)
