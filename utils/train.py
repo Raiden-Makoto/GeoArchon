@@ -7,6 +7,13 @@ Usage: python train.py [--epochs EPOCHS] [--alpha ALPHA] [--lr LR] [--log] [--ea
 import argparse
 import datetime
 import os
+import sys
+from pathlib import Path
+
+# Add project root to Python path
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
 from models.hea_vae import HEA_VAE
 from models.trainer import Trainer
 from mlx.optimizers import AdamW
@@ -16,8 +23,8 @@ def main():
     parser = argparse.ArgumentParser(description='Train HEA VAE model')
     parser.add_argument('--epochs', type=int, default=100,
                         help='Number of training epochs (default: 100)')
-    parser.add_argument('--alpha', type=float, default=25.0,
-                        help='Weight for property loss (default: 25.0)')
+    parser.add_argument('--alpha', type=float, default=50.0,
+                        help='Weight for property loss (default: 50.0)')
     parser.add_argument('--lr', type=float, default=1e-3,
                         help='Learning rate (default: 1e-3)')
     parser.add_argument('--log', action='store_true', default=False,
@@ -28,9 +35,9 @@ def main():
     args = parser.parse_args()
     
     # Fixed/default values for other parameters
-    batch_size = 100
+    batch_size = 256
     beta = 1.0  # Final beta value after annealing
-    csv_path = 'data/MPEA_cleaned.csv'
+    csv_path = 'data/HEA_stability_train.csv'
     val_split = 0.2
     # Early stopping is DISABLED by default - only enable if --early-stopping flag is set
     early_stopping_patience = 10 if args.early_stopping else float('inf')
@@ -97,8 +104,8 @@ def main():
     # Initialize optimizer with specified learning rate
     optimizer = AdamW(learning_rate=args.lr)
     
-    # Initialize trainer - ensure model matches dataset (30 element columns)
-    trainer = Trainer(model=HEA_VAE(input_dim=30, latent_dim=4, hidden_dim=512, dropout_rate=0.1), 
+    # Initialize trainer - ensure model matches dataset (8 element columns)
+    trainer = Trainer(model=HEA_VAE(input_dim=8, latent_dim=4, hidden_dim=512, dropout_rate=0.1), 
                       opt=optimizer, alpha=args.alpha, beta=beta)
     
     # Train the model (saves to models/hea_vae_best.npz by default)
