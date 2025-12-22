@@ -52,9 +52,9 @@ def run_train(epochs, alpha, lr, log, early_stopping):
     print("STEP 2: Training Model")
     print("=" * 60)
     
-    # Check if cleaned dataset exists
-    if not os.path.exists("data/MPEA_cleaned.csv"):
-        print("✗ Error: data/MPEA_cleaned.csv not found")
+    # Check if processed dataset exists
+    if not os.path.exists("data/HEA_stability_train.csv"):
+        print("✗ Error: data/HEA_stability_train.csv not found")
         print("  Run preprocessing first or use --skip-preprocess to skip it")
         return False
     
@@ -100,22 +100,18 @@ def run_evaluate(model_path="models/hea_vae_best.npz"):
         print("  Train the model first or use --skip-train to skip training")
         return False
     
-    cmd = [
-        sys.executable, "utils/evaluate.py",
-        "--model", model_path
-    ]
-    
+    # evaluate.py doesn't take command line args, so we import and call directly
     try:
-        result = subprocess.run(
-            cmd,
-            check=True,
-            capture_output=False,  # Show output in real-time
-            text=True
-        )
+        # Import and run directly since evaluate.py doesn't have CLI args
+        sys.path.insert(0, os.getcwd())
+        from utils.evaluate import evaluate_stability
+        evaluate_stability(model_path=model_path)
         print("\n✓ Evaluation completed successfully")
         return True
-    except subprocess.CalledProcessError as e:
-        print(f"\n✗ Evaluation failed with exit code {e.returncode}")
+    except Exception as e:
+        print(f"\n✗ Evaluation failed: {e}")
+        import traceback
+        traceback.print_exc()
         return False
     except KeyboardInterrupt:
         print("\n✗ Evaluation interrupted by user")
@@ -145,8 +141,8 @@ Examples:
     # Training parameters
     parser.add_argument('--epochs', type=int, default=100,
                         help='Number of training epochs (default: 100)')
-    parser.add_argument('--alpha', type=float, default=25.0,
-                        help='Weight for property loss (default: 25.0)')
+    parser.add_argument('--alpha', type=float, default=50.0,
+                        help='Weight for property loss (default: 50.0)')
     parser.add_argument('--lr', type=float, default=1e-3,
                         help='Learning rate (default: 1e-3)')
     parser.add_argument('--log', action='store_true', default=False,
@@ -220,7 +216,7 @@ Examples:
         print("=" * 60)
         print("\nOutput files:")
         if not args.skip_preprocess:
-            print("  - data/MPEA_cleaned.csv (preprocessed dataset)")
+            print("  - data/HEA_stability_train.csv (preprocessed dataset)")
         if not args.skip_train:
             print(f"  - {args.model} (trained model)")
         if not args.skip_eval:
